@@ -50,6 +50,10 @@ Given a large news article, the system performs:
 - Input validation
 - Reproducible experiments
 
+##### Note:
+> “Different components of the system are trained or fine-tuned on datasets appropriate to their task. This mirrors real-world NLP systems, where models are specialized and pretrained on task-specific corpora. Care was taken to maintain consistent preprocessing and domain alignment to avoid distributional bias.”
+
+
 ### Project Structure
 ``` plaintext
 News categorization/
