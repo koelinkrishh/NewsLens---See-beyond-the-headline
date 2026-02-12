@@ -1,3 +1,5 @@
+Dataset/*.csv
+
 ## Writing gitignore file
 # ---- Python build & cache files ----
 __pycache__/
