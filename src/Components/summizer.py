@@ -1,6 +1,14 @@
+from typing import Tuple, Optional
+import pandas as pd
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import os
+from typing import List
+import html, re, unicodedata
+from bs4 import BeautifulSoup
+import spacy
+from pydantic import BaseModel, field_validator, ValidationError
+
 
 # 1. Suppress the oneDNN optimization messages
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
@@ -8,54 +16,169 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 # 2. Suppress other TensorFlow logging (0=all, 1=no INFO, 2=no INFO/WARN, 3=no ERROR)
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
-# 1. Load the Model and Tokenizer
-model_name = "facebook/bart-large-cnn" # Faster: "sshleifer/distilbart-cnn-12-6"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+# 3. Define pydantic models -> validataion for input
+class ChunkRequest(BaseModel):
+    text: str
+    
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, v):
+        if not v.strip() or not isinstance(v, str):
+            raise ValidationError("Text must be a non-empty string")
+        return v.strip()
+    
+class SummarizeRequest(BaseModel):
+    text: str
+    
+    @field_validator("text")
+    @classmethod
+    def validate_text(cls, v):
+        if not v.strip() or not isinstance(v, str):
+            raise ValidationError("Text must be a non-empty string")
+        return v.strip()
 
-print("Model and Tokenizer loaded successfully.")
 
-def summarize_text(text_to_summarize):
-    """
-    Handles tokenization, chunking, and summarization.
-    """
-    L = len(text_to_summarize.split(" "))
-    # 2. Convert text to tokens
-    # We don't use truncation=True here because we WANT to see the full length
-    inputs = tokenizer(text_to_summarize, return_tensors="pt", add_special_tokens=False)
-    input_ids = inputs["input_ids"][0]
-    
-    # 3. Define Chunk Size 
-    # BART's limit is 1024, but we use 500 to stay safe and leave room for generation
-    chunk_size = 500 
-    
-    # Split the input_ids into chunks of 500 tokens each
-    chunks = [input_ids[i : i + chunk_size] for i in range(0, len(input_ids), chunk_size)]
-    
-    summaries = []
-    
-    for chunk in chunks:
-        # 4. Convert token IDs back to a batch format for the model
-        chunk_tensor = chunk.unsqueeze(0) 
+# 4. First we need a Text Chunker to bypass token limit
+class TextChunker:
+    def __init__(self, tokenizer=None, max_tokens:int=512, clean_whitespace:bool=True):
+        """
+        Tokenizer: Hugging face tokenizer - best suitable for transformers
+        max_tokens: max tokens per chunk (model dependent)
+        """
+        self.tokenizer = tokenizer if tokenizer else AutoTokenizer.from_pretrained(model_name)
+        self.max_tokens = max_tokens
+        self.clean_whitespace = clean_whitespace
+        self.nlp = spacy.load("en_core_web_sm")
         
-        # 5. Generate Summary for the chunk
-        with torch.no_grad():
-            output_ids = model.generate(
-                chunk_tensor, 
-                max_length=int(L/5), 
-                min_length=int(L/10), 
-                length_penalty=2.0, 
-                num_beams=4, 
-                early_stopping=True
+    def _clean_text(self, text:str) -> str:
+        """
+        Perform safe, canonical text cleaning for NLP tasks.
+        Preserves linguistic structure.
+        """
+        if not self.clean_whitespace:
+            return text
+        
+        if pd.isna(text) or not isinstance(text, str):
+            return ''
+        
+        # 1. Fix broken encoding and HTML entities
+        s = html.unescape(text)    
+        # 2. normalize unicode (NFKC helps)
+        s = unicodedata.normalize('NFKC', s)
+        # 3. Remove HTML tags (robust)
+        s = BeautifulSoup(s, 'lxml').get_text(separator=" ")
+        # 4. remove ZERO WIDTH and BOM chars
+        s = re.sub(r'[\u200B-\u200D\uFEFF]', '', s)
+        # 5. Normalize whitespace (spaces, tabs)
+        s = re.sub(r"[ \t]+", " ", s)
+        # 6. Remove repeated newlines
+        s = re.sub(r"\n\s*\n+", "\n", s)
+        # 7. Strip leading and trailing whitespace
+        s = s.strip()
+        
+        return s
+    
+    def _split_sentence(self, text:str) -> List[str]:
+        """
+        Basic sentence splitting using regex
+        You can replace with spaCy or nltk if needed
+        """
+        # sentences = re.split(r'(?<=[,!?])\s+', text)
+        # return [s.strip() for s in sentences if s.strip()]
+        ## OR else
+        doc = self.nlp(text)
+        return [str(sent) for sent in doc.sents]
+    
+    def chunk(self, text:str) -> List[str]:
+        req = ChunkRequest(text=text)
+        text = self._clean_text(req.text)
+        sentences = self._split_sentence(text)
+        
+        chunks = []
+        curr_chunk = []
+        current_len = 0
+        
+        for sent in sentences:
+            sent_len = len(self.tokenizer(str(sent), add_special_tokens=False)["input_ids"])
+            
+            # If sentence itself exceeds max_token, give it its own chunk
+            if sent_len > self.max_tokens:
+                if curr_chunk:
+                    chunks.append(" ".join(curr_chunk))
+                    # chunks.append(curr_chunk)
+                    curr_chunk, current_len = [], 0
+                
+                chunks.append(sent)
+                continue
+            
+            # If adding sentence exceeds limit -> flush chunk
+            if current_len+sent_len > self.max_tokens:
+                chunks.append(" ".join(curr_chunk)) # add previous
+                # chunks.append(curr_chunk) # add previous
+                
+                # reset new sent into next chunk
+                curr_chunk = [sent]
+                current_len = sent_len
+            else: # adding sent keep chunk within bound -> add furthur
+                curr_chunk.append(sent)
+                current_len += sent_len
+                
+        if curr_chunk: # add last chunk
+            chunks.append(" ".join(curr_chunk))
+            # chunks.append(curr_chunk)
+        
+        return chunks
+
+
+# 5. Final model for summarization
+class NewsSummarizer:
+    def __init__(self, model_name=None, tokenizer=None, summarizer=None):
+        self.tokenizer = tokenizer if tokenizer else AutoTokenizer.from_pretrained(model_name)
+        self.model = summarizer if summarizer else AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        
+        if (not self.tokenizer) or (not self.model):
+            raise Exception("Model and Tokenizer not loaded")
+        
+        self.Chunker = TextChunker(tokenizer=self.tokenizer, max_tokens=256)
+    
+    def _get_summary_length(self, text:str, num_chunks:int, compression:float) -> Tuple[int, int]:
+        # text = list of chunks
+        encodings = self.tokenizer(text, add_special_tokens=False, truncation=False)
+        total_tokens = sum(len(ids) for ids in encodings["input_ids"])
+        
+        target_tokens = int(total_tokens * compression)
+
+        max_len = max(30, int(target_tokens / num_chunks))
+        min_len = int(max_len * 0.5)
+
+        return min_len, max_len
+
+    
+    def summarize(self, text:str, compression:Optional[float]=0.5) -> str:
+        req = SummarizeRequest(text=text)
+        text = req.text
+        
+        chunks = self.Chunker.chunk(text)
+        
+        min_len, max_len = self._get_summary_length(text=chunks, num_chunks=len(chunks), compression=compression)
+        
+        # Batch Tokenization
+        inputs = self.tokenizer(chunks, return_tensors="pt", padding=True, truncation=True, max_length=self.Chunker.max_tokens)
+        # inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        
+        with torch.inference_mode():
+            output_ids = self.model.generate(
+                inputs["input_ids"], attention_mask=inputs["attention_mask"],
+                min_length=min_len, max_length=max_len,
+                num_beams=2, no_repeat_ngram_size=3,
+                # repetition_penalty=1.15, length_penalty=2.0, 
+                early_stopping=True, do_sample=False # deterministic
             )
         
-        # 6. Decode tokens back to text
-        summary = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-        summaries.append(summary)
+        summary = self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+            
+        return "\n".join(summary)
     
-    # 7. Combine mini-summaries
-    full_summary = " ".join(summaries)
-    return full_summary
 
 # --- Example Usage ---
 long_article = """ 
@@ -90,6 +213,15 @@ The LR-AShM is a Hypersonic Glide Missile capable of engaging static and moving 
 The tableau displayed indigenously developed technologies and systems which acted as a force multiplier for conventional submarines of the Indian Navy, the statement read, adding that these systems are Integrated Combat Suite (ICS), Wire Guided Heavy Weight Torpedo (WGHWT) and Air Independent Propulsion, which will ensure combat supremacy in the underwater domain.
 """
 
-# If the article is > 500 tokens, it will be processed in pieces.
-# final_result = summarize_text(long_article)
-# print("Final Summary:\n", final_result)
+if __name__ == '__main__':
+    # 1. Load the Model and Tokenizer
+    model_name = "facebook/bart-large-cnn" # Faster: "sshleifer/distilbart-cnn-12-6"
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+    print("Model and Tokenizer loaded successfully.")
+
+    # If the article is > 500 tokens, it will be processed in pieces.
+    Summarizer_model = NewsSummarizer(tokenizer=tokenizer, summarizer=model)
+    summ = Summarizer_model.summarize(long_article, compression=0.5)
+    print("Summary: \n", summ)
+
