@@ -60,16 +60,30 @@ News categorization/
 │
 ├── src/
 │   ├── Components/                   (contains submodules)
-│       ├── 
+│       ├── FeatureGeneration.py
+│       ├── Search_faiss.py
+│       ├── SemanticTopicModel.py
+│       ├── summizer.py
+│       └── utils.py
 │   ├── logger.py                     ✅ central logging setup
 │   ├── exception.py                  ✅ custom exception class
 │   ├── config.py                     ✅ (stores paths, constants, hyperparameters)
 │   └── utils.py                      ⚪ (helper utilities like plotting, validation)
 │
 ├── Dataset/
-|   ├── Data files                    (Raw data files)
-│   ├── processed/                    (cleaned + combined parquet)
-│   ├── intermediate/                 (feature datasets)
+|   ├── bbc-text.csv
+|   ├── data_sample.csv
+|   ├── News_Category_Dataset_v3.json
+|   └── Clean/
+|       ├── BBC_with_features_combined.parquet
+|       ├── Clean_bbc.parquet
+|       ├── Clean_dataset.parquet
+|       ├── Combined_dataset.parquet
+|       ├── dataset_summary_features.parquet
+|       ├── Dataset_with_clusters.parquet
+|       ├── Dataset_with_embeddings.parquet
+|       ├── dataset_with_features.parquet
+|       └── Embeddings.parquet
 ├── Models/                       (trained model weights/model)
 │
 ├── notebooks/                        (EDA, experimentation)

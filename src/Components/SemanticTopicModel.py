@@ -1,148 +1,104 @@
+''' 
+Upto now, we have created components file for feature creation and model training.
+Those code block needed to be run once for Setting up our Dataset.
+
+those model only need to be loaded to create features at Inference.
+The following components will also be trained once from dataset and use everyone at inference.
+'''
+
+import os
+import sys
+import joblib
 import numpy as np
 import pandas as pd
-from bertopic import BERTopic
-from sentence_transformers import SentenceTransformer
+import umap
+import hdbscan
+
+# Loading model
+from sklearn.cluster import MiniBatchKMeans
 from sklearn.feature_extraction.text import TfidfVectorizer
-from typing import List, Dict, Optional
+from sentence_transformers import SentenceTransformer
+from bertopic import BERTopic
+
+# Local Imports
+from src.config import *
+from src.logger import logging
+from src.exception import CustomException
+
 
 class SemanticTopicModel:
     """
     BERTopic wrapper for training, inference, zero-shot cluster labeling,
     and semantic indexing.
     """
+    def __init__(self, embedding_model_name: str = SENTENCE_TRANSFORMER_MODEL,):
+        logging.info(f"Initializing Semantic Topic Model [{embedding_model_name}]...")
+    
+        try:    
+            self.embedding_model = SentenceTransformer(embedding_model_name)
+            self.umap_model = umap.UMAP(n_components=5, n_neighbors=30, min_dist=0.0, metric='cosine', random_state=42)
+            self.cluster_model = MiniBatchKMeans(n_clusters=20, random_state=42, n_init='auto')
+            self.vectorizer = TfidfVectorizer(ngram_range=(1,2), stop_words='english', min_df=10, max_df=0.8)
 
-    def __init__(
-        self,
-        embedding_model_name: str = "all-MiniLM-L6-v2",
-        min_df: int = 5,
-        max_df: float = 0.75,
-        ngram_range: tuple = (1, 2),
-        calculate_probabilities: bool = True,
-        verbose: bool = True,
-        model_path: Optional[str] = None
-    ):
-        self.embedding_model = SentenceTransformer(embedding_model_name)
-
-        vectorizer = TfidfVectorizer(
-            stop_words="english",
-            min_df=min_df,
-            max_df=max_df,
-            ngram_range=ngram_range
-        )
-
-        if model_path:
-            self.topic_model = BERTopic.load(
-                model_path,
-                embedding_model=self.embedding_model
-            )
-        else:
             self.topic_model = BERTopic(
                 language="english",
-                vectorizer_model=vectorizer,
+                vectorizer_model=self.vectorizer,
                 embedding_model=self.embedding_model,
-                calculate_probabilities=calculate_probabilities,
-                verbose=verbose
+                umap_model=self.umap_model,
+                hdbscan_model=self.cluster_model,
+                calculate_probabilities=True,
+                verbose=True, 
+                nr_topics=None # let kmeans handle the count
             )
-
-        self.topic_labels: Dict[int, List[str]] = {}
+            logging.info("Semantic Topic Model initialized successfully.")
+        except Exception as e:
+            raise CustomException(e, sys)
         
-    def fit(self, texts: List[str], embeddings: Optional[np.ndarray] = None, clusters: Optional[List[int]] = None):
-        """
-        Train BERTopic.
-        If clusters are provided, they guide topic formation.
-        """
-
-        if embeddings is None:
-            embeddings = self.embedding_model.encode(texts, show_progress_bar=True)
-
-        self.topics_, self.probs_ = self.topic_model.fit_transform(
-            texts,
-            embeddings,
-            y=clusters
-        )
-
-        return self.topics_, self.probs_
-    
-    def label_clusters(self, top_n_words: int = 5) -> Dict[int, List[str]]:
-        """
-        Generate human-readable labels for each topic.
-        """
-
-        labels = {}
-        for topic_id, words in self.topic_model.get_topics().items():
-            if topic_id == -1:
-                continue
-
-            labels[topic_id] = [word for word, _ in words[:top_n_words]]
-
-        self.topic_labels = labels
-        return labels
-
-    def transform(self, texts: List[str]):
-        """
-        Assign nearest topic to new documents at Inference
-        """
-
-        embeddings = self.embedding_model.encode(texts, show_progress_bar=False)
-        topics, probs = self.topic_model.transform(texts, embeddings)
-
-        return topics, probs
-
-    def add_semantic_topics(self, df: pd.DataFrame, text_col: str, topic_col: str = "topic", prob_col: str = "topic_confidence") -> pd.DataFrame:
-        """
-        Adds topic assignments + confidence scores to a dataframe.
-        """
-
-        texts = df[text_col].astype(str).tolist()
-        topics, probs = self.transform(texts)
-
-        df = df.copy()
-        df[topic_col] = topics
-        df[prob_col] = probs.max(axis=1)
-
-        return df
-    
-    def get_topic_info(self, topic_id: int):
-        """
-        Get keywords + optional label for a topic.
-        """
-
-        return {
-            "topic_id": topic_id,
-            "keywords": self.topic_model.get_topic(topic_id),
-            "label": self.topic_labels.get(topic_id, None)
-        }
-    
-    def find_nearest_topics(self, query: str, top_n: int = 5):
-        """
-        Find closest topics to a query string.
-        """
-
-        return self.topic_model.find_topics(query, top_n=top_n)
-
-    def save(self, path: str):
-        self.topic_model.save(path)
+    def fit_transform(self, df:pd.DataFrame, text_col:str="Content", emb_col:str="embedding") -> pd.DataFrame:
+        logging.info("Fitting BERTopic pipeline)")
         
+        try:
+            texts = df[text_col].astype(str).tolist()
+            embeddings = np.vstack(df[emb_col].values)
+
+            topics, _ = self.topic_model.fit_transform(texts, embeddings)
+            df['Topic'] = topics
+
+            logging.info("BERTopic fit successfully.")
+            return df
+        except Exception as e:
+            raise CustomException(e, sys)
+    
+    def save_model(self):
+        try:
+            logging.info("Saving our BERTopic pipeline")
+            # Saving standard BERTopic pipeline
+            joblib.dump(self.topic_model, BERTOPIC_MODEL_DIR)
+            # saving entire model:
+            self.topic_model.save(BERTOPIC_MODEL_PARAMETERS, serialization="pytorch", save_embedding_model=True)
+
+        except Exception as e:
+            raise CustomException(e, sys)
         
+    
+# ---------------------------------------------------------
+# EXECUTION BLOCK
+# ---------------------------------------------------------     
 if __name__ == "__main__":
-    df =  pd.read_parquet("../Data/Clean/Dataset_with_clusters.parquet")
-    model = SemanticTopicModel()
+    try:
+        # We can load the kmeans output or the pure embeddings file
+        logging.info(f"Loading data from {CLUSTER_DATASET}")
+        df = pd.read_parquet(CLUSTER_DATASET)
+        
+        engine = SemanticTopicModel()
+        dataset = engine.fit_transform(df)
+        engine.save_model()
+        
+        # Save Final Dataset
+        df.to_parquet(FINAL_DATASET_PARQUET, index=False)
+        logging.info(f"✅ Success! Saved topic modeled data to {FINAL_DATASET_PARQUET}")
 
-    model.fit(
-        texts=df["Content"].tolist(),
-        embeddings=np.vstack(df["Embedding"].values),
-        clusters=df["Cluster"].tolist()
-    )
-
-    model.label_clusters()
-    # model.save("../Models/topic_model.joblib")
-    
-    ## At inference
-    model = SemanticTopicModel(model_path="../Models/topic_model.joblib")
-
-    topics, probs = model.transform([
-        "The prime minister announced new election reforms."
-    ])
-    
-    df = model.add_semantic_topics(df, "Content")
+    except Exception as e:
+        logging.error(f"Pipeline Failed: {e}")
+        raise CustomException(e, sys)
 

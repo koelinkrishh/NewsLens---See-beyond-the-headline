@@ -29,7 +29,8 @@ experiments/*.pkl
 experiments/
 *.pkl
 
-Data/*.joblib
+Dataset/*.joblib
+Dataset/*.json
 # *.csv
 # *.pkl
 # *.db

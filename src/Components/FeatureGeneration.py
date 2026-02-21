@@ -1,20 +1,31 @@
 import re
-import unicodedata
 import html
+import unicodedata
 import numpy as np
+import pandas as pd
 from bs4 import BeautifulSoup
 from collections import Counter
+from typing import Dict, Any, List, Optional
+import sys, os
 
-# NLP libs
-import nltk
+    # NLP libs
 import spacy
+import nltk
 import textstat
-from nltk.tokenize import word_tokenize
+from nltk.tokenize import word_tokenize, sent_tokenize
 from nltk.corpus import stopwords
-from flair.models import SequenceTagger
-from flair.data import Sentence
-from sentence_transformers import SentenceTransformer
+from .utils import clean_text
 
+# Logging
+from src.config import * # Loading config paths
+from src.logger import logging
+from src.exception import CustomException
+
+# 1. Suppress the oneDNN optimization messages
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+# 2. Suppress other TensorFlow logging (0=all, 1=no INFO, 2=no INFO/WARN, 3=no ERROR)
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 class TextFeatureGenerator:
     """
@@ -22,158 +33,167 @@ class TextFeatureGenerator:
     Each sub-task uses the most appropriate NLP library.
     """
 
-    def __init__(
-        self,
-        enable_ner: bool = True,
-        enable_semantic: bool = True,
-        max_ner_chars: int = 3000
-    ):
-        # NLTK
-        nltk.download("punkt", quiet=True)
-        nltk.download("stopwords", quiet=True)
-        self.stop_words = set(stopwords.words("english"))
+    def __init__(self, spacy_model:str="en_core_web_sm", enable_semantic:bool=True, embedding_model_name:str="all-MiniLM-L6-v2"):
+        logging.info(f"⚡ Initializing Heuristics Engine [{spacy_model}]...")
+        
+        try:
+            logging.info(f"Loading spaCy model: {spacy_model}")
+            
+            # 1. Download NLTK resources
+            nltk.download('punkt', quiet=True)
+            nltk.download('stopwords', quiet=True)
+            self.stop_words = set(stopwords.words('english'))
+            
+            try:
+                self.nlp = spacy.load(spacy_model)
+            except OSError:
+                logging.warning(f"Model `{spacy_model}` not found. Downloading...")
+                from spacy.cli import download
+                download(spacy_model)
+                self.nlp = spacy.load(spacy_model)
+                
+            logging.info("NLP resources initialized successfully.")
+                
+        except Exception as e:
+            raise CustomException(e, sys)
+        
+    # Generate features ->
+    def extract_features(self, text:str) -> dict:
+        """
+        Extracts features from the given text.
+        """
+        try:
+            if not isinstance(text, str) or not text.strip():
+                return {}
+            text = clean_text(text)
+            
+            doc = self.nlp(text)
+            
+            features = {}
+            sentences = sent_tokenize(text)
+            tokens = [t.lower() for t in word_tokenize(text) if t.isalnum()]
+            counts = Counter(tokens)
+            stopwords_used = [t for t in tokens if t in self.stop_words]
+            
+            rare_words = [w for w,c in counts.items() if c==1]
+            
+            pos_counts = Counter(tok.pos_ for tok in doc if tok.is_alpha)
+            ent_counts = Counter(ent.label_ for ent in doc.ents)
+            
+            # 1. Text length and Structure
+            features["char_count"] = len(text)
+            features["char_count_no_spaces"] = len(text.replace(" ",""))
+            features["sentence_count"] = len(sentences)
+            
+            # 2. Vocabulary and Lexical richness
+            features["word_count"] = len(tokens)
+            features["unique_word_count"] = len(counts)
+            features["lexical_diversity"] = features["unique_word_count"]/max(1,features["word_count"])
+            features["hapax_ratio"] = len(rare_words)/max(1,features["word_count"])
+            
+            # 3. Stop-words and content words
+            features["stopword_Count"] = len(stopwords_used)
+            features["content_word_count"] = len(tokens) - len(stopwords_used)
+            features["stopword_ratio"] = len(stopwords_used)/max(1,features["word_count"])
+            
+            # 4. POS
+            features["noun_count"] = pos_counts.get("NOUN", 0)
+            features["verb_count"] = pos_counts.get("VERB", 0)
+            features["adj_count"] = pos_counts.get("ADJ", 0)
+            features["adv_count"] = pos_counts.get("ADV", 0)
+            features["pronoun_count"] = pos_counts.get("PRON", 0)
+            
+            # 5. NER
+            features["person_count"] = ent_counts.get("PERSON", 0)
+            features["org_count"] = ent_counts.get("ORG", 0)
+            features["gpe_count"] = ent_counts.get("GPE", 0)
+            features["event_count"] = ent_counts.get("EVENT", 0)
+            features["unique_entity_count"] = len(set(ent.text for ent in doc.ents))
+            
+            # 6. Readibility features
+            features["flesch_reading_ease"] = textstat.flesch_reading_ease(text)
+            features["flesch_kincaid_grade"] = textstat.flesch_kincaid_grade(text)
+            features["gunning_fog"] = textstat.gunning_fog(text)
+            
+            return features
+        
+        except Exception as e:
+            logging.error(f"Error extracting features for text: {text[:30]}...")
+            raise CustomException(e, sys)
+        
+    def process_dataframe(self, df:pd.DataFrame, text_col:str) -> pd.DataFrame:
+        """
+        Applies cleaning and feature extraction to the dataframe.
+        """
+        try:
+            logging.info(f"Processing DataFrame. Shape: {df.shape}")
+            
+            logging.info(f"Cleaning column: {text_col}")
+            df[text_col] = df[text_col].apply(clean_text)
+            logging.info("Extracting features (this may take time)...")
+            
+            features_list = df[text_col].apply(self.extract_features).tolist()
+            features_df = pd.DataFrame(features_list, index=df.index)
+            
+            # concatenation
+            df_final = pd.concat([df, features_df], axis=1)
+            logging.info(f"Feature generation complete. New shape: {df_final.shape}")
+            
+            return df_final
+        except Exception as e:
+            raise CustomException(e, sys)
+        
+    ## Inference call
+    def Create_features(self, article:str|pd.DataFrame, text_col:str=None) -> pd.DataFrame:
+        try:
+            if isinstance(article, str): # Given only text
+                features = self.extract_features(article)
+                logging.info("Successfully created features.")
+                return pd.DataFrame(features, index=[0])
+            elif isinstance(article, pd.DataFrame): # Given a dataframe
+                if text_col is None:
+                    logging.error("Textual column name missing for Inference call")
+                    raise ValueError("text_col is required when article is a dataframe")
+            
+                return self.process_dataframe(article, text_col)
+            else:
+                raise CustomException(f"Unsupported type: {type(article)}", sys)
+        except Exception as e:
+            raise CustomException(e, sys)
+            
 
-        # spaCy (POS only)
-        self.nlp_pos = spacy.load("en_core_web_sm", disable=["ner", "parser"])
+# --- Main Execution Block ---
+if __name__ == "__main__":
+    try:
+        # Configuration (You can change paths here)
+        INPUT_PATH = DATA_SAMPLE_CSV
+        OUTPUT_PATH = CLEANED_DATASET_PARQUET
+        TEXT_COLUMN = "Content"
 
-        # Flair NER
-        self.enable_ner = enable_ner
-        self.max_ner_chars = max_ner_chars
-        if enable_ner:
-            self.ner_tagger = SequenceTagger.load("flair/ner-english")
-
-        # Transformer for semantic density
-        self.enable_semantic = enable_semantic
-        if enable_semantic:
-            self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
-
-    # -------------------------
-    # Canonical cleaning (SAFE)
-    # -------------------------
-    def clean_text(self, text: str) -> str:
-        if not isinstance(text, str):
-            return ""
-
-        text = html.unescape(text)
-        text = unicodedata.normalize("NFKC", text)
-        text = BeautifulSoup(text, "lxml").get_text(separator=" ")
-        text = re.sub(r"[ \t]+", " ", text)
-        text = re.sub(r"\n\s*\n+", "\n", text)
-        return text.strip()
-
-    # -------------------------
-    # Length & structure
-    # -------------------------
-    def _length_features(self, text: str) -> dict:
-        return {
-            "char_count": len(text),
-            "char_count_no_spaces": len(text.replace(" ", "")),
-            "paragraph_count": text.count("\n") + 1
-        }
-
-    # -------------------------
-    # Lexical richness
-    # -------------------------
-    def _lexical_features(self, text: str) -> dict:
-        tokens = [t.lower() for t in word_tokenize(text) if t.isalpha()]
-        counts = Counter(tokens)
-
-        return {
-            "word_count": len(tokens),
-            "unique_word_count": len(counts),
-            "lexical_diversity": len(counts) / max(len(tokens), 1),
-            "hapax_ratio": sum(1 for c in counts.values() if c == 1) / max(len(tokens), 1)
-        }
-
-    # -------------------------
-    # Stopword stats
-    # -------------------------
-    def _stopword_features(self, text: str) -> dict:
-        tokens = [t.lower() for t in word_tokenize(text) if t.isalpha()]
-        stopword_count = sum(1 for t in tokens if t in self.stop_words)
-
-        return {
-            "stopword_count": stopword_count,
-            "stopword_ratio": stopword_count / max(len(tokens), 1),
-            "content_word_count": len(tokens) - stopword_count
-        }
-
-    # -------------------------
-    # POS statistics
-    # -------------------------
-    def _pos_features(self, text: str) -> dict:
-        doc = self.nlp_pos(text)
-        pos_counts = Counter(tok.pos_ for tok in doc if tok.is_alpha)
-
-        return {
-            "noun_count": pos_counts.get("NOUN", 0),
-            "verb_count": pos_counts.get("VERB", 0),
-            "adj_count": pos_counts.get("ADJ", 0),
-            "adv_count": pos_counts.get("ADV", 0),
-            "pronoun_count": pos_counts.get("PRON", 0)
-        }
-
-    # -------------------------
-    # Named Entity features (Flair)
-    # -------------------------
-    def _ner_features(self, text: str) -> dict:
-        if not self.enable_ner:
-            return {}
-
-        sentence = Sentence(text[: self.max_ner_chars])
-        self.ner_tagger.predict(sentence)
-
-        labels = [ent.get_label("ner").value for ent in sentence.get_spans("ner")]
-        counts = Counter(labels)
-
-        return {
-            "person_count": counts.get("PER", 0),
-            "org_count": counts.get("ORG", 0),
-            "location_count": counts.get("LOC", 0),
-            "misc_entity_count": counts.get("MISC", 0),
-            "total_entity_count": len(labels)
-        }
-
-    # -------------------------
-    # Readability metrics
-    # -------------------------
-    def _readability_features(self, text: str) -> dict:
-        return {
-            "flesch_reading_ease": textstat.flesch_reading_ease(text),
-            "flesch_kincaid_grade": textstat.flesch_kincaid_grade(text),
-            "gunning_fog": textstat.gunning_fog(text)
-        }
-
-    # -------------------------
-    # Semantic density (Transformer)
-    # -------------------------
-    def _semantic_features(self, text: str) -> dict:
-        if not self.enable_semantic:
-            return {}
-
-        sentences = [s.strip() for s in text.split(".") if len(s.strip()) > 20]
-
-        if len(sentences) < 2:
-            return {"semantic_variance": 0.0}
-
-        embeddings = self.embedder.encode(sentences[:20])
-        variance = float(np.mean(np.var(embeddings, axis=0)))
-
-        return {"semantic_variance": variance}
-
-    # -------------------------
-    # Public API
-    # -------------------------
-    def generate(self, raw_text: str) -> dict:
-        text = self.clean_text(raw_text)
-
-        features = {}
-        features.update(self._length_features(text))
-        features.update(self._lexical_features(text))
-        features.update(self._stopword_features(text))
-        features.update(self._pos_features(text))
-        features.update(self._ner_features(text))
-        features.update(self._readability_features(text))
-        features.update(self._semantic_features(text))
-
-        return features
+        logging.info("Starting Data Cleaning & Feature Generation Pipeline")
+        
+        processor = TextFeatureGenerator()
+        
+        # 1. Load Data
+        if os.path.exists(INPUT_PATH):
+            logging.info(f"Loading data from {INPUT_PATH}")
+            if INPUT_PATH.endswith('.csv'):
+                df = pd.read_csv(INPUT_PATH, index_col=0)
+            else:
+                df = pd.read_parquet(INPUT_PATH)
+        else:
+            raise FileNotFoundError(f"Input file not found: {INPUT_PATH}")
+            
+        # 2. Process
+        df_processed = processor.process_dataframe(df, text_col=TEXT_COLUMN)
+        print(df_processed.head())
+        # 3. Save
+        os.makedirs(os.path.dirname(OUTPUT_PATH), exist_ok=True)
+        # df_processed.to_parquet(OUTPUT_PATH)
+        logging.info(f"Successfully saved processed data to {OUTPUT_PATH}")
+        
+    except Exception as e:
+        logging.error("Pipeline Failed")
+        print(e)
+    
+    
