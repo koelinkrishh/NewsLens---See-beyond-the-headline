@@ -4,6 +4,7 @@ import joblib
 import numpy as np
 import pandas as pd
 import spacy
+from typing import List
 
 # Loading model
 from sklearn.cluster import MiniBatchKMeans
@@ -32,6 +33,11 @@ class KMeansTopicLabeler:
             self.n_cluster = n_clusters
             self.Kmeans = MiniBatchKMeans(n_clusters=self.n_cluster, random_state=42, n_init='auto')
             self.nlp = spacy.load(spacy_model)
+            
+            # fitted after training
+            self.vectorizer = None
+            self.cluster_labels = None
+            
         except Exception as e:
             raise CustomException(e, sys)
         
@@ -62,12 +68,12 @@ class KMeansTopicLabeler:
             logging.info("Extraction TF-IDF labels per cluster")
             doc_per_cluster = df.groupby("cluster")[text_col].apply(lambda x: " ".join(x)).reset_index()
             
-            vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=min_df, max_df=max_df)
-            cluster_tfidf = vectorizer.fit_transform(doc_per_cluster[text_col])
-            vocab = vectorizer.get_feature_names_out()
+            self.vectorizer = TfidfVectorizer(stop_words="english", ngram_range=(1, 2), min_df=min_df, max_df=max_df)
+            cluster_tfidf = self.vectorizer.fit_transform(doc_per_cluster[text_col])
+            vocab = self.vectorizer.get_feature_names_out()
             
-            cluster_labels = {}
-            for i, cluster_id in enumerate(df["cluster"].unique()):
+            self.cluster_labels = {}
+            for i, cluster_id in enumerate(doc_per_cluster["cluster"]):
                 # Get scores for this specific cluster row
                 scores = cluster_tfidf[i].toarray().flatten()
                 
@@ -81,13 +87,54 @@ class KMeansTopicLabeler:
                         actual_terms.append(term)
                     if len(actual_terms)==top_n: break
                     
-                cluster_labels[cluster_id] = actual_terms
+                self.cluster_labels[cluster_id] = actual_terms
             
             logging.info("KMeans Clustering & Labeling Complete")
-            return df, cluster_labels
+            return df, self.cluster_labels
         
         except Exception as e:
             raise CustomException(e, sys)
+        
+        
+    def save(self):
+        joblib.dump(self.Kmeans, KMEANS_MODEL_DIR)
+        joblib.dump(self.vectorizer, KMEANS_VECTORIZER)
+        joblib.dump(self.cluster_labels, KMEANS_LABELS)
+        
+        logging.info("Success! Saved to disk")
+        
+    def load(self):
+        self.Kmeans = joblib.load(KMEANS_MODEL_DIR)
+        self.vectorizer = joblib.load(KMEANS_VECTORIZER)
+        self.cluster_labels = joblib.load(KMEANS_LABELS)
+        
+        logging.info("Loaded from disk")
+        
+    # INFERENCE
+    def predict(self, text:str|List[str], embedding:np.ndarray):
+        """ Cluster label for a given text and get its keywords. """
+        if not hasattr(self.Kmeans, "cluster_centers_"):
+            raise ValueError("Model is not trained or loaded")
+        if isinstance(embedding, dict):
+            raise ValueError("Embedding must be a numeric vector, not model output dict")
+
+        # reshape embedding to 2D
+        emb = np.array(embedding).astype(np.float32).reshape(1, -1)
+
+        # predict cluster
+        cluster_id = str(self.Kmeans.predict(emb)[0])
+
+        # get labels
+        if hasattr(self, "cluster_labels"):
+            labels = self.cluster_labels.get(cluster_id, [])
+        else:
+            labels = []
+
+        return {
+            "text": text,
+            "cluster": cluster_id,
+            "labels": labels,
+        }
         
         
                 
@@ -98,15 +145,20 @@ if __name__ == "__main__":
     try:
         df = pd.read_parquet(EMBEDDED_DATASET)
         
-        
         label_model = KMeansTopicLabeler(n_clusters=10)
         dataset, labels = label_model.Label_clusters(df=df)
-        print("Labels: ", labels)
-        print("Dataset: ", dataset)
+        # print("Labels: ", labels)
+        # print("Dataset: ", dataset)
         
-        # Save artifacts
-        joblib.dump(label_model, KMEANS_MODEL_DIR)
-        joblib.dump(labels, KMEANS_LABELS)
+        sample = df.sample(1)
+        query = sample["Content"].values[0]
+        emm = sample["embedding"].values[0]
+        
+        print("Embedding: ", emm.shape)
+        print("Query: ", query[:100])
+        print(label_model.predict(query, embedding=emm))
+        
+        label_model.save()
         
         logging.info("✅ Success! Saved to disk")
         # Saving dataframe

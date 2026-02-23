@@ -45,6 +45,7 @@ FINAL_DATASET_PARQUET = os.path.join(CLEAN_DATA_DIR, "4) Complete_dataset.parque
 MODEL_DIR = os.path.join(PROJECT_ROOT, "Models")
 
 KMEANS_MODEL_DIR = os.path.join(MODEL_DIR, "kmeans_clusterer.joblib")
+KMEANS_VECTORIZER = os.path.join(MODEL_DIR, "kmeans_vectorizer.joblib")
 KMEANS_LABELS = os.path.join(MODEL_DIR, "kmeans_labels.pkl")
 BERTOPIC_MODEL_DIR = os.path.join(MODEL_DIR, "topic_model.joblib")
 BERTOPIC_MODEL_PARAMETERS = os.path.join(MODEL_DIR, "topic_model_parameters")
@@ -54,6 +55,7 @@ Spacy_trf = "en_core_web_trf"
 # Flair_ner = "flair/ner-english-ontonotes-fast"
 Gliner_ner = "fastino/gliner2-large-v1" # OR "urchade/gliner_medium-v2.1"
 Keybert_model = "all-MiniLM-L6-v2"
+SUMMARIZATION_MODEL = "sshleifer/distilbart-cnn-12-6"
 
 
 

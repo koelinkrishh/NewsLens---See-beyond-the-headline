@@ -42,7 +42,7 @@ class TextChunker:
         Tokenizer: Hugging face tokenizer - best suitable for transformers
         max_tokens: max tokens per chunk (model dependent)
         """
-        self.tokenizer = tokenizer if tokenizer else AutoTokenizer.from_pretrained(model_name)
+        self.tokenizer = tokenizer if tokenizer else AutoTokenizer.from_pretrained(SUMMARIZATION_MODEL)
         self.max_tokens = max_tokens
         try:
             self.nlp = spacy.load(spacy_model, disable=["ner", "tagger", "lemmatizer"])
@@ -88,10 +88,9 @@ class TextChunker:
         return chunks
     
 
-
 # 5. Final model for summarization
 class NewsSummarizer:
-    def __init__(self, model_name=None, tokenizer=None, summarizer=None):
+    def __init__(self, model_name=SUMMARIZATION_MODEL, tokenizer=None, summarizer=None):
         try:
             # 1. Dynamic Device Selection (Future-proof for GPU/CPU)
             if torch.cuda.is_available():

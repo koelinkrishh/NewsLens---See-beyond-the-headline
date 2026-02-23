@@ -1,156 +1,121 @@
+# NewLens - Unsupervised News Intelligence Platform
 
-# NewLens - Unsupervised News Article Analyzer
+NewLens is an end-to-end, high-performance NLP application designed to analyze news articles using unsupervised techniques. It transforms raw text into structured insights, providing linguistic heuristics, abstractive summarization, semantic clustering, and named entity recognition through a sleek, dual-process architecture (FastAPI + Streamlit).
 
-An end-to-end Single point NLP interfrace that analyzes any news article using unsupervised techniques to extract insights such as linguistic statistics, named entities, summaries, and similar articles — all wrapped inside a user-friendly frontend.
-
-This project demonstrates practical NLP skills, ML engineering practices, and system design thinking, making it suitable for Data Scientist / ML Engineer entry-level roles.
-
-### 🚀 Project Overview
-
-Given a large news article, the system performs:
-1. Text heuristics & linguistic analysis
-2. Named Entity Recognition (NER) & keyword extraction
-3. Abstractive text summarization
-4. Semantic similarity search to find related articles
-5. Interactive visualization through a web UI
+---
 
 ## 🎯 Key Features
-#### 🔍 Text Heuristics
-- Word count
-- Character count
-- Sentence count
-- Unique word ratio
-- Lexical diversity
-- Average sentence length
 
-#### 🏷️ Entity & Keyword Extraction
-1. Extracts:
-- Persons
-- Organizations
-- Locations (GPE)
-2. Stores entities in sets for future matching
+### 🔍 Linguistic Heuristics & Analysis
+- **Grammar DNA:** Visualize POS distribution (Nouns, Verbs, Adjectives, etc.).
+- **Sentence Pacing:** Interactive charts showing word count flow across sentences.
+- **Readability & Density:** Automated Flesch Reading Ease scoring and information-to-fluff ratios.
 
-3. Enables downstream similarity & analytics
+### ✂️ AI-Powered Summarization
+- **Abstractive Summary:** Leverages transformer-based models to compress long articles while maintaining semantic meaning.
+- **Compression Control:** Adjust the summary length dynamically via the UI.
 
-#### ✂️ Text Summarization
-* Generates ~100 word summaries
-* Handles long documents via chunking
-* Uses transformer-based pre-trained models
+### 🧠 Semantic Topic Modeling & Clustering
+- **BERTopic Integration:** Automatic topic discovery and probability distribution.
+- **KMeans Clustering:** Maps articles to predefined clusters with c-TF-IDF keyword extraction.
+- **Fit Analysis:** Visual gauges measuring the article's distance to its cluster centroid.
 
-#### 🔗 Similar Article Retrieval
-- Converts articles into vector embeddings
-- Computes semantic similarity
-- Returns Top-3 most similar articles from a large corpus
-- Independent of article category labels
+### 🏷️ Multi-Engine NER & Keywords
+- **SpaCy:** Standard entity extraction (Persons, Orgs, Locations).
+- **GLiNER:** Zero-shot Named Entity Recognition for custom labels.
+- **KeyBERT:** Semantic keyword extraction with importance scoring.
 
-#### 🧠 Engineering Best Practices
-- Centralized logging
-- Custom exception handling
-- Config-driven parameters
-- Input validation
-- Reproducible experiments
+### 🔗 Similar Article Retrieval (FAISS)
+- **Vector Search:** Uses FAISS indexing to find top-K similar articles from a massive dataset.
+- **Smart Routing:** Finds related content based on semantic embeddings, independent of source labels.
 
-##### Note:
-> “Different components of the system are trained or fine-tuned on datasets appropriate to their task. This mirrors real-world NLP systems, where models are specialized and pretrained on task-specific corpora. Care was taken to maintain consistent preprocessing and domain alignment to avoid distributional bias.”
+---
 
+## 🏗️ System Architecture
 
-### Project Structure
-``` plaintext
+The project follows a decoupled **Client-Server architecture** to ensure scalability and separation of concerns:
+
+1.  **Backend (FastAPI):** Serves as the AI Engine. Loads heavy transformer models (Summarizers, Embeddings, NER) and exposes RESTful endpoints.
+2.  **Frontend (Streamlit):** A premium, interactive dashboard that communicates with the API to visualize data and plots.
+3.  **Vector Store (FAISS):** Efficient similarity search on compressed vector embeddings.
+
+---
+
+## 📂 Project Structure
+
+```plaintext
 News categorization/
-│
+├── app/
+│   ├── api.py                # FastAPI Backend (The AI Engine)
+│   └── app.py                # Streamlit Frontend (The Dashboard)
 ├── src/
-│   ├── Components/                   (contains submodules)
-│       ├── FeatureGeneration.py
-│       ├── Search_faiss.py
-│       ├── SemanticTopicModel.py
-│       ├── summizer.py
-│       └── utils.py
-│   ├── logger.py                     ✅ central logging setup
-│   ├── exception.py                  ✅ custom exception class
-│   ├── config.py                     ✅ (stores paths, constants, hyperparameters)
-│   └── utils.py                      ⚪ (helper utilities like plotting, validation)
-│
-├── Dataset/
-|   ├── bbc-text.csv
-|   ├── data_sample.csv
-|   ├── News_Category_Dataset_v3.json
-|   └── Clean/
-|       ├── BBC_with_features_combined.parquet
-|       ├── Clean_bbc.parquet
-|       ├── Clean_dataset.parquet
-|       ├── Combined_dataset.parquet
-|       ├── dataset_summary_features.parquet
-|       ├── Dataset_with_clusters.parquet
-|       ├── Dataset_with_embeddings.parquet
-|       ├── dataset_with_features.parquet
-|       └── Embeddings.parquet
-├── Models/                       (trained model weights/model)
-│
-├── notebooks/                        (EDA, experimentation)
-├── requirements.txt
-├── README.md
-└── app/                              (will hold FastAPI or Streamlit app)
+│   ├── Components/           # Modular NLP Logic (Summarization, NER, Clustering, etc.)
+│   ├── config.py             # Centralized paths and hyperparameters
+│   ├── logger.py             # Custom logging system
+│   └── exception.py          # Centralized error handling
+├── Dataset/                  # Raw and processed datasets (Parquet/FAISS)
+├── Models/                   # Saved model weights and parameters
+├── Notebooks/                # EDA and Experimentation logs
+├── requirements.txt          # Complete dependency list
+└── README.md                 # Project documentation
 ```
 
-### 📊 Dataset
-##### MN-DS-News Dataset
-A real-world news dataset containing ~11,000 articles.
+---
 
-Key Columns:
-1. date → Publication date as int count
-2. source → News source
-3. title → Headline
-4. content → Main article text
-5. author → Author (optional)
-6. url → Original article link
-7. category_level_1 / 2 → Used only for sanity checks (not training)
+## ▶️ Setup & Installation
 
-### 🧠 System Architecture
-```
-User Article
-     ↓
-Input Validation
-     ↓
-Text Preprocessing
-     ↓
-+-----------------------------+
-|  Heuristics Analysis        |
-|  NER & Keyword Extraction   |
-|  Text Summarization         |
-|  Embedding Generation       |
-+-----------------------------+
-     ↓
-Similarity Search
-     ↓
-Streamlit UI Visualization
+Follow these steps to set up the environment and run the project from scratch.
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/yourusername/NewsLens.git
+cd NewsLens
 ```
 
-### __▶️ How to Run the App__
-1️⃣ Install dependencies
-``` python
- pip install -r requirements.txt
+### 2. Set Up Virtual Environment (Recommended)
+```bash
+python -m venv newsenv
+# Windows:
+.\newsenv\Scripts\activate
+# Mac/Linux:
+source newsenv/bin/activate
 ```
-2️⃣ Run Streamlit
-``` python
- streamlit run app/app.py
+
+### 3. Install Dependencies
+```bash
+pip install -r requirements.txt
+python -m spacy download en_core_web_sm
 ```
 
+### 4. Run the Application
+You need to run **two separate processes**:
 
-### 📈 Possible Extensions
-`a. Topic modeling (BERTopic)`  \
-`b. Temporal news trend analysis`   \
-`c. Multilingual support`   \
-`d. Real-time news ingestion`   \
-`e. RAG-based article Q&A`  \
-`f.User personalization`
+**Step 4a: Start the Backend API (AI Engine)**
+Open a terminal and run:
+```bash
+uvicorn app.api:app --reload
+```
+*Wait for the "Startup complete" message.*
 
+**Step 4b: Start the Frontend Dashboard**
+Open a second terminal (ensure the environment is active) and run:
+```bash
+streamlit run app/app.py
+```
 
+---
 
-_👤 Author_
+## 📈 Roadmap & Extensions
 
-Krishan Verma \
-Aspiring Data Scientist / ML Engineer
+- **[Planned] Dockerization:** Containerizing the API and UI using Docker Compose for one-click deployment.
+- **[Planned] Cloud Deployment:** Hosting the API on AWS/GCP and the UI on Streamlit Cloud.
+- **Temporal Trend Analysis:** Visualizing how specific news topics evolve over time.
+- **Multilingual Support:** Expanding NER and Summarization to support non-English news sources.
+- **RAG-based Article Q&A:** Integrating a Chat-over-Document feature using local LLMs.
+- **Real-time News Ingestion:** Building a scraper to analyze live news feeds via RSS.
 
+---
 
-
-
+_👤 **Author**_
+**Krishan Verma**
+*Aspiring Data Scientist / ML Engineer*

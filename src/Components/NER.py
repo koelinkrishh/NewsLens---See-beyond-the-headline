@@ -32,9 +32,9 @@ class InformationExtractor:
         "Country", "City", "State", "Region", "Continent", "Climate zone", "Forest", "Desert", "Mountain", "Park", "Water body",
         "Building", "Airport", "Monument", "Landmark", "Date", "Time", "Duration", "Percent", "Money", "Temperature", "Speed", "Age",
         "Law", "Case", "Judge", "Constitution", "Election", 
-        "Medical", "Disease", "Drug", "Symptom", "Chemical"
+        "Medical", "Disease", "Drug", "Symptom", "Chemical",
         "Location", "Product", "Event", "Work_of_art", "Language",
-        "Business", "Market", "Stock", "Currency", "Product"
+        "Business", "Market", "Stock", "Currency", "Product",
         "Sport", "Games", "Award", "Event",
         "Art", "Book", "Movie", "TV show", 
         "Computer", "Vehicle", "Machine", "Programming language", "Technology",
@@ -80,7 +80,7 @@ class InformationExtractor:
             
             doc = self.nlp(text)
             entities = [(ent.text, ent.label_) for ent in doc.ents]
-            return entities, doc
+            return entities
         except Exception as e:
             logging.warning(f"spaCy NER Extraction failed: {e}")
             raise CustomException(e, sys)
@@ -91,9 +91,28 @@ class InformationExtractor:
             if not text or not text.strip():
                 return []
             
-            entities = self.gliner_model.extract_entities(text, labels, threshold,
+            if labels is None:
+                labels = self.default_ner_labels
+                
+            out_dict = self.gliner_model.extract_entities(text, labels, threshold,
                 include_confidence=True, include_spans=True)
-            return entities
+            
+            flat_entities = []
+            if isinstance(out_dict, dict) and 'entities' in out_dict:
+                for label, matches in out_dict['entities'].items():
+                    for match in matches:
+                        flat_entities.append({
+                            'text': match.get('text', ''),
+                            'label': label,
+                            'score': match.get('confidence', 1.0),
+                            'start': match.get('start', 0),
+                            'end': match.get('end', 0)
+                        })
+            elif isinstance(out_dict, list):
+                # Fallback if standard GLiNER format is returned
+                flat_entities = out_dict
+                
+            return flat_entities
         except Exception as e:
             logging.warning(f"GLiNER Extraction failed: {e}")
             raise CustomException(e, sys)
@@ -103,11 +122,11 @@ class InformationExtractor:
         diversity:float = 0.5, n_gram_range:tuple = (1, 2), MMR:bool=True):
         """ Extracts semantic keywords using KeyBERT """
         try:
-            if not query or not len(query.strip().split()) < 5:
+            if not query or len(query.strip().split()) < 5:
                 return []
             
             keywords = self.kw_model.extract_keywords(query, top_n=top_n, 
-                diversity=diversity, n_gram_range=n_gram_range, use_mmr=MMR, stop_words="english",
+                diversity=diversity, keyphrase_ngram_range=n_gram_range, use_mmr=MMR, stop_words="english",
             )
             
             return keywords
@@ -149,7 +168,20 @@ class InformationExtractor:
                 html = spacy.displacy.render(self.nlp(article), style="ent", page=True, jupyter=False)
                 return html
             elif type=='gliner':
-                html = GLiNER2.visualize(self.gliner_model, article)
+                entities = self.extract_gliner_entities(article)
+                
+                # Sort in reverse order to substitute from the end to the front without messing up indices
+                sorted_ents = sorted(entities, key=lambda x: x['start'], reverse=True)
+                
+                html = article
+                for ent in sorted_ents:
+                    start, end, label = ent['start'], ent['end'], ent['label']
+                    
+                    # HTML template inspired by spaCy's displacy
+                    mark_str = f'<mark style="background: #e0f7fa; padding: 0.15em 0.3em; margin: 0 0.15em; border-radius: 0.25em; font-weight: bold; border: 1px solid #b2ebf2;">{html[start:end]} <span style="font-size: 0.7em; margin-left: 0.25em; color: #00796b; font-variant: small-caps;">{label}</span></mark>'
+                    
+                    html = html[:start] + mark_str + html[end:]
+                    
                 return html
             
         except Exception as e:
