@@ -210,37 +210,25 @@ elif page == "3. Clustering & Topic Modeling":
                     st.metric("Predicted BERTopic ID", t_id)
                     
                     c1, c2 = st.columns(2)
+                    bviz = BERTopicVisualizer(
+                        topic_id=t_id,
+                        topic_prob=t_prob,
+                        topic_keywords=t_kw
+                    )
+                    
                     with c1:
                         st.subheader("Topic Distribution")
-                        if t_prob and len(t_prob) > 0:
-                            probs = np.asarray(t_prob)
-                            idx = np.argsort(probs)[::-1][:10]
-                            df_p = pd.DataFrame({
-                                'Topic': [f"Topic {i}" for i in idx],
-                                'Probability': probs[idx]
-                            })
-                            fig1 = px.bar(
-                                df_p, x='Topic', y='Probability', 
-                                title="BERTopic Probabilities",
-                                color='Topic',
-                                color_discrete_sequence=px.colors.qualitative.Prism
-                            )
-                            st.plotly_chart(fig1, width='stretch')
+                        dist_fig = bviz.plot_topic_distribution()
+                        if dist_fig:
+                            st.plotly_chart(dist_fig, width='stretch')
                         else:
                             st.info("No probability distribution available.")
                             
                     with c2: 
                         st.subheader("Topic Keywords")
-                        if t_kw and len(t_kw) > 0:
-                            df_kw = pd.DataFrame(t_kw, columns=["Keyword", "Score"])
-                            fig2 = px.bar(
-                                df_kw, x='Score', y='Keyword', orientation='h', 
-                                title=f"Keywords for Topic {t_id}",
-                                color='Score',
-                                color_continuous_scale='Mint'
-                            )
-                            fig2.update_layout(yaxis={'categoryorder':'total ascending'})
-                            st.plotly_chart(fig2, width='stretch')
+                        kw_fig = bviz.plot_topic_keywords()
+                        if kw_fig:
+                            st.plotly_chart(kw_fig, width='stretch')
                         else:
                             st.info("No keywords found.")
             else:
@@ -298,9 +286,22 @@ if page != "Home":
                     with c2:
                         st.markdown("<br>", unsafe_allow_html=True)
                         if st.button("Analyze", key=f"api_sim_{item['idx']}"):
-                            st.session_state["article_text"] = item["Content"]
-                            # Trigger re-process for new article via API
-                            st.rerun()
+                            with st.spinner("Processing suggested article..."):
+                                try:
+                                    response = requests.post(f"{API_BASE_URL}/process", json={"text": item["Content"]})
+                                    if response.status_code == 200:
+                                        data = response.json()
+                                        st.session_state["article_text"] = item["Content"]
+                                        st.session_state["word_count"] = len(item["Content"].split())
+                                        feat_df = pd.DataFrame([data["features"]])
+                                        feat_df['Content'] = item["Content"]
+                                        st.session_state["features_df"] = feat_df
+                                        st.session_state["article_embedding"] = np.array(data["embedding"])
+                                        st.rerun()
+                                    else:
+                                        st.error(f"API Error: {response.text}")
+                                except Exception as e:
+                                    st.error(f"Processing Failed: {e}")
         else:
             st.info("Similar articles lookup failed or dataset not found on backend.")
     except Exception as e:

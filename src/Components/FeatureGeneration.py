@@ -33,7 +33,7 @@ class TextFeatureGenerator:
     Each sub-task uses the most appropriate NLP library.
     """
 
-    def __init__(self, spacy_model:str="en_core_web_sm", enable_semantic:bool=True, embedding_model_name:str="all-MiniLM-L6-v2"):
+    def __init__(self, spacy_model:str="en_core_web_sm", enable_semantic:bool=True):
         logging.info(f"⚡ Initializing Heuristics Engine [{spacy_model}]...")
         
         try:

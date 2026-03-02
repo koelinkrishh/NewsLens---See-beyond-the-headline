@@ -14,6 +14,9 @@ from src.exception import CustomException
 # Loading utility functions (assuming clean_text is here)
 from src.Components.utils import clean_text
 
+# Chaching for faster processing
+from functools import lru_cache
+
 # 1. Suppress the oneDNN optimization messages
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -193,6 +196,7 @@ class ArticleEmbeddingEngine:
 
         return final_embeddings
     
+    @lru_cache(maxsize=64) # store the last 64 article embedding
     def create_embedding(self, article: str):
         """
         Inference pipeline for a single article.
@@ -226,6 +230,15 @@ class ArticleEmbeddingEngine:
         if norm>0: pooled = pooled / norm
         
         return pooled
+    
+    # For compatibility with BERTopic module
+    @lru_cache(maxsize=64)
+    def embed(self, texts:List[str]): 
+        """
+        Compatibility method for BERTopic.
+        Allows BERTopic to use this engine (and its cache) directly.
+        """
+        return self.Embed_dataframe(pd.DataFrame({TEXT_COL:texts}), TEXT_COL)
 
 # ---------------------------------------------------------
 # EXECUTION

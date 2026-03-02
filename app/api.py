@@ -22,10 +22,12 @@ app = FastAPI(title="News Intelligence Platform API")
 
 models = {}
 
+# API health check -> Needed for deployment platform    
 @app.get("/")
 def health_check():
     return {"status": "online", "message": "News Intelligence API is running"}
 
+# Automatic work done through api before starting app
 @app.on_event("startup")
 def load_models():
     models['feature_gen'] = TextFeatureGenerator()
@@ -35,7 +37,7 @@ def load_models():
     kmeans.load()
     models['kmeans'] = kmeans
     
-    topic_model = BERTopic.load(BERTOPIC_MODEL_PARAMETERS, embedding_model=SENTENCE_TRANSFORMER_MODEL)
+    topic_model = BERTopic.load(BERTOPIC_MODEL_PARAMETERS, embedding_model=models['embedder']) # """New every time: SENTENCE_TRANSFORMER_MODEL"""
     models['topic_model'] = topic_model
     
     models['summarizer'] = NewsSummarizer()
@@ -54,6 +56,7 @@ class SummarizeRequest(BaseModel):
     text: str
     compression: float = 0.5
 
+# PRocessing task done on Inference time
 @app.post("/process")
 def process_article(req: ArticleRequest):
     if not req.text.strip():
@@ -66,11 +69,13 @@ def process_article(req: ArticleRequest):
     feat_dict = feat_df.iloc[0].to_dict()
     return {"features": feat_dict, "embedding": emb.tolist()}
 
+# Summarization task 
 @app.post("/summarize")
 def summarize_article(req: SummarizeRequest):
     summary_text = models['summarizer'].summarize(req.text, compression=req.compression)
     return {"summary": summary_text}
 
+# Clustering task
 @app.post("/cluster")
 def cluster_article(req: ArticleRequest):
     emb = models['embedder'].create_embedding(req.text)
@@ -97,19 +102,19 @@ def cluster_article(req: ArticleRequest):
         }
     }
 
+# NER task
 @app.post("/ner")
 def extract_ner(req: ArticleRequest):
     # Process text for spacy, gliner, and keywords
     ner_res = models['ner'].process_articles(req.text)
     
+    keywords = ner_res['keywords']
+    spacy_ents = ner_res['predefined_ents']
+    gliner_ents = ner_res['custom_ents']
+    
     # We can serialize simplified formats or just return HTMLs for visualization
     spacy_html = models['ner'].Visualize(req.text, type="spacy")
-    gliner_html = models['ner'].Visualize(req.text, type="gliner")
-    
-    # Extract entities and keywords
-    spacy_ents = models['ner'].extract_spacy_entities(req.text)
-    gliner_ents = models['ner'].extract_gliner_entities(req.text, labels=models['ner'].default_ner_labels)
-    keywords = models['ner'].extract_keywords(req.text)
+    gliner_html = models['ner'].Visualize(req.text, type="gliner", entities=gliner_ents)
     
     return {
         "spacy_html": spacy_html,
@@ -117,9 +122,14 @@ def extract_ner(req: ArticleRequest):
         "spacy_ents": spacy_ents,
         "gliner_ents": gliner_ents,
         "keywords": keywords,
-        "raw_ner_res": ner_res
+        "raw_ner_res": {
+            "Keywords": keywords,
+            "predefined_ent": spacy_ents,
+            "custom_ent": gliner_ents
+        }
     }
 
+# Search task
 @app.post("/search")
 def search_similar(req: ArticleRequest):
     if models['search_engine'] is None:

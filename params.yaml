@@ -1,0 +1,29 @@
+# Model Parameters and Inputs configuration -> All configuration parameters in project
+feature_generation:
+  spacy_model: "en_core_web_sm"
+  enable_semantic: true
+
+embedding:
+  model_name: "BAAI/bge-small-en-v1.5"
+
+semantic_clustering:
+  n_clusters: 10
+  spacy_model: "en_core_web_sm"
+
+semantic_topic_model:
+  embedding_model_name: "BAAI/bge-small-en-v1.5"
+
+summarization:
+  max_tokens: 512
+  clean_whitespace: true
+  spacy_model: "en_core_web_sm"
+  model_name: "sshleifer/distilbart-cnn-12-6"
+
+ner:
+  spacy_model_name: "en_core_web_trf"
+  gliner_model_name: "fastino/gliner2-large-v1"
+  keybert_model_name: "all-MiniLM-L6-v2"
+
+search_faiss:
+  embedding_col: "embedding"
+  topic_col: "Topic"

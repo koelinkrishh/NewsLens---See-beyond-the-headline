@@ -18,6 +18,9 @@ from src.config import *
 from src.logger import logging
 from src.exception import CustomException
 
+# Chaching for faster processing
+from functools import lru_cache
+
 
 class InformationExtractor:
     """
@@ -72,30 +75,50 @@ class InformationExtractor:
         except Exception as e:
             raise CustomException(e, sys)
         
+    @lru_cache(maxsize=128)
+    def _get_spacy_doc(self, text:str):
+        """ Get spacy doc for the given text """
+        try:
+            if not text or not text.strip():
+                return None
+            
+            doc = self.nlp(text)
+            return doc
+        except Exception as e:
+            logging.warning(f"spaCy Doc extraction failed: {e}")
+            raise CustomException(e, sys)
+        
     def extract_spacy_entities(self, text:str):
         """ Extract standard predefined entities using Spacy NER part of trf pipeline"""
         try:
             if not text or not text.strip():
                 return []
             
-            doc = self.nlp(text)
+            doc = self._get_spacy_doc(text)
             entities = [(ent.text, ent.label_) for ent in doc.ents]
             return entities
         except Exception as e:
             logging.warning(f"spaCy NER Extraction failed: {e}")
             raise CustomException(e, sys)
     
+    @lru_cache(maxsize=128)
+    def _get_gliner_results(self, text:str, labels:tuple=None, threshold: float = 0.5):
+        """ Internal cached method for GLiNER """
+        if labels is None:
+            labels = tuple(self.default_ner_labels)
+            
+        return self.gliner_model.extract_entities(text, list(labels), threshold,
+            include_confidence=True, include_spans=True)
+
     def extract_gliner_entities(self, text:str, labels:List[str]=None, threshold: float = 0.5):
         """ Extracts custom entities by zero-shot semantic matching using GLiNER """
         try:
             if not text or not text.strip():
                 return []
             
-            if labels is None:
-                labels = self.default_ner_labels
-                
-            out_dict = self.gliner_model.extract_entities(text, labels, threshold,
-                include_confidence=True, include_spans=True)
+            # Convert list to tuple for caching
+            labels_tuple = tuple(labels) if labels is not None else None
+            out_dict = self._get_gliner_results(text, labels_tuple, threshold)
             
             flat_entities = []
             if isinstance(out_dict, dict) and 'entities' in out_dict:
@@ -118,6 +141,13 @@ class InformationExtractor:
             raise CustomException(e, sys)
         
         
+    @lru_cache(maxsize=128)
+    def _get_keywords(self, query:str, top_n:int, diversity:float, n_gram_range:tuple, MMR:bool):
+        """ Internal cached method for KeyBERT """
+        return self.kw_model.extract_keywords(query, top_n=top_n, 
+            diversity=diversity, keyphrase_ngram_range=n_gram_range, use_mmr=MMR, stop_words="english",
+        )
+
     def extract_keywords(self, query:str, top_n:int = 10, 
         diversity:float = 0.5, n_gram_range:tuple = (1, 2), MMR:bool=True):
         """ Extracts semantic keywords using KeyBERT """
@@ -125,9 +155,7 @@ class InformationExtractor:
             if not query or len(query.strip().split()) < 5:
                 return []
             
-            keywords = self.kw_model.extract_keywords(query, top_n=top_n, 
-                diversity=diversity, keyphrase_ngram_range=n_gram_range, use_mmr=MMR, stop_words="english",
-            )
+            keywords = self._get_keywords(query, top_n, diversity, tuple(n_gram_range), MMR)
             
             return keywords
         except Exception as e:
@@ -144,16 +172,16 @@ class InformationExtractor:
             keywords = self.extract_keywords(article)
             
             return {
-                "Keywords": keywords,
-                "predefined_ent": spacy_ent,
-                "custom_ent": gliner_ent
+                "keywords": keywords,
+                "predefined_ents": spacy_ent,
+                "custom_ents": gliner_ent
             }
         except Exception as e:
             logging.warning(f"Article processing failed: {e}")
             raise CustomException(e, sys)
         
     
-    def Visualize(self, article:str, type:str=None):
+    def Visualize(self, article:str, type:str=None, entities:List[str]=None):
         """
         Visualizes article for entities and keywords usingHTML rendering.
         Compatible with spacy and GLiNER
@@ -165,13 +193,15 @@ class InformationExtractor:
                 raise ValueError("Type from model must be provided for visualization.")
             
             if type=='spacy':
-                html = spacy.displacy.render(self.nlp(article), style="ent", page=True, jupyter=False)
+                # Get docs from cache
+                docs = self._get_spacy_doc(article)
+                html = spacy.displacy.render(docs, style="ent", page=True, jupyter=False)
                 return html
             elif type=='gliner':
-                entities = self.extract_gliner_entities(article)
+                ents = entities if entities is not None else self.extract_gliner_entities(article)
                 
                 # Sort in reverse order to substitute from the end to the front without messing up indices
-                sorted_ents = sorted(entities, key=lambda x: x['start'], reverse=True)
+                sorted_ents = sorted(ents, key=lambda x: x['start'], reverse=True)
                 
                 html = article
                 for ent in sorted_ents:
@@ -182,7 +212,10 @@ class InformationExtractor:
                     
                     html = html[:start] + mark_str + html[end:]
                     
-                return html
+                # Improve text density and spacing
+                html = html.replace('\n', '<br>')
+                formatted_html = f'<div style="line-height: 2.0; font-size: 1.15em; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, Helvetica, Arial, sans-serif;">{html}</div>'
+                return formatted_html
             
         except Exception as e:
             logging.warning(f"Article visualization failed: {e}")

@@ -326,6 +326,12 @@ class NewsVisualizer:
 # ============================================================================
 # 2) KMeansVisualizer — Cluster labels & similar articles
 # ============================================================================
+@st.cache_resource
+def _get_kmeans_labeler(n_clusters: int):
+    labeler = KMeansTopicLabeler(n_clusters=n_clusters)
+    labeler.load()
+    return labeler
+
 class KMeansVisualizer:
     """
     KMeans + TF-IDF cluster visualization. Loads KMeansTopicLabeler; uses article
@@ -333,8 +339,7 @@ class KMeansVisualizer:
     """
     def __init__(self, article_data: Union[pd.Series, pd.DataFrame], n_clusters: int = 10):
         logging.info("Initializing KMeans Visualizer...")
-        self.labeler = KMeansTopicLabeler(n_clusters=n_clusters)
-        self.labeler.load()
+        self.labeler = _get_kmeans_labeler(n_clusters)
         self.article_data = self._normalize_input(article_data)
         emb = self.article_data.get('embedding')
         text = self.article_data.get('Content', '')
@@ -608,6 +613,12 @@ class NERVisualizer:
 # ============================================================================
 # 4) BERTopicVisualizer — Topic assignment & topic keywords
 # ============================================================================
+@st.cache_resource
+def _get_bertopic_model():
+    from bertopic import BERTopic
+    logging.info("Loading BERTopic for visualization...")
+    return BERTopic.load(BERTOPIC_MODEL_PARAMETERS, embedding_model=SENTENCE_TRANSFORMER_MODEL)
+
 class BERTopicVisualizer:
     """
     BERTopic inference visualization. Loads BERTopic from config; runs transform
@@ -616,45 +627,23 @@ class BERTopicVisualizer:
     """
     def __init__(
         self,
-        article_text: str,
-        topic_model=None,
-        embedding: Optional[np.ndarray] = None,
+        topic_id: int,
+        topic_prob: List[float],
+        topic_keywords: List[Tuple[str, float]]
     ):
         """
-        Either pass precomputed (topic_id, probs) or article_text + optional topic_model.
-        If topic_model is None, loads from BERTOPIC_MODEL_PARAMETERS.
+        Takes precomputed topic parameters directly from the API.
+        Does not run the model locally on the frontend.
         """
-        self.article_text = (article_text or "").strip()
-        self.topic_id = None
-        self.probs = None
-        self.topic_model = topic_model
-
-        if topic_model is None and os.path.exists(BERTOPIC_MODEL_PARAMETERS):
-            from bertopic import BERTopic
-            logging.info("Loading BERTopic for visualization...")
-            self.topic_model = BERTopic.load(BERTOPIC_MODEL_PARAMETERS, embedding_model=SENTENCE_TRANSFORMER_MODEL)
-
-        if self.topic_model is not None and self.article_text:
-            try:
-                topics, probs = self.topic_model.transform([self.article_text])
-                self.topic_id = topics[0] if topics is not None else -1
-                self.probs = probs[0] if probs is not None else None
-            except Exception as e:
-                logging.error(f"BERTopic transform failed: {e}")
-                self.topic_id = -1
-                self.probs = None
+        self.topic_id = topic_id
+        self.probs = topic_prob
+        self.topic_keywords = topic_keywords
 
     def get_topic_keywords(self, topic_id: Optional[int] = None) -> List[Tuple[str, float]]:
-        """Top words for topic from BERTopic.get_topic()."""
-        if self.topic_model is None:
+        """Top words for topic from BERTopic."""
+        if not self.topic_keywords:
             return []
-        tid = topic_id if topic_id is not None else self.topic_id
-        if tid is None or tid < 0:
-            return []
-        topic_tuples = self.topic_model.get_topic(tid)
-        if not topic_tuples:
-            return []
-        return [(str(w), float(s)) for w, s in (topic_tuples or [])]
+        return [(str(w), float(s)) for w, s in self.topic_keywords]
 
     # 1. TOPIC DISTRIBUTION: BERTopic Probability Scores
     def plot_topic_distribution(self, top_n: int = 10, height: int = 340) -> Optional[go.Figure]:
@@ -715,17 +704,6 @@ class BERTopicVisualizer:
             "topic_id": self.topic_id,
             "topic_keywords": kw,
         }
-
-    # 3. TOPIC INFO TABLE: BERTopic get_topic_info (manual inspection)
-    def get_topic_info_table(self) -> Optional[pd.DataFrame]:
-        """Returns BERTopic topic info table (Count, Name, Representation, etc.)."""
-        try:
-            if self.topic_model is None:
-                return None
-            return self.topic_model.get_topic_info()
-        except Exception as e:
-            logging.error(f"get_topic_info_table failed: {e}")
-            return None
 
 
 # ============================================================================
@@ -850,42 +828,8 @@ if __name__ == "__main__":
             st.warning(f"KMeans cluster view unavailable: {kv_err}")
 
         # BERTopic
-        if os.path.exists(BERTOPIC_MODEL_PARAMETERS):
-            try:
-                bv = BERTopicVisualizer(row.iloc[0].get('Content', ''))
-                if bv.topic_model:
-                    st.subheader("3. BERTopic")
-                    # Inference: article's topic distribution and keywords
-                    dist_fig = bv.plot_topic_distribution()
-                    if dist_fig is not None:
-                        st.plotly_chart(dist_fig, width='stretch')
-                    kw_fig = bv.plot_topic_keywords()
-                    if kw_fig is not None:
-                        st.plotly_chart(kw_fig, width='stretch')
-                    # Topic info table (manual inspection)
-                    topic_info_df = bv.get_topic_info_table()
-                    if topic_info_df is not None and not topic_info_df.empty:
-                        st.caption("Topic information (manual inspection)")
-                        st.dataframe(topic_info_df, width='stretch', height=300)
-                    # Aggregation table by topic
-                    agg_df = get_bertopic_aggregation_table(df, topic_col="Topic")
-                    if agg_df is not None and not agg_df.empty:
-                        st.caption("Aggregation by topic (mean of features)")
-                        st.dataframe(agg_df, width='stretch', height=250)
-                    # Built-in BERTopic plots
-                    st.caption("Dataset-level: topic relationships and hierarchy")
-                    viz_topics = bv.plot_visualize_topics()
-                    if viz_topics is not None:
-                        st.plotly_chart(viz_topics, width='stretch')
-                    viz_heat = bv.plot_visualize_heatmap()
-                    if viz_heat is not None:
-                        st.plotly_chart(viz_heat, width='stretch')
-                    viz_hier = bv.plot_visualize_hierarchy()
-                    if viz_hier is not None:
-                        st.plotly_chart(viz_hier, width='stretch')
-            except Exception as bv_err:
-                logging.warning(f"BERTopic visualization skipped: {bv_err}")
-                st.warning(f"BERTopic view unavailable: {bv_err}")
+        if False: # Removed manual test since BERTopicVisualizer now takes API results instead of raw logic
+            pass
 
         # Summarization
         if 'Summary' in row.columns and pd.notna(row.iloc[0].get('Summary')):

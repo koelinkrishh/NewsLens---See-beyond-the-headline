@@ -13,6 +13,9 @@ from src.config import *
 from src.logger import logging
 from src.exception import CustomException
 
+# Chaching for faster processing
+from functools import lru_cache
+
 
 class SemanticSearchEngine:
     """
@@ -81,7 +84,8 @@ class SemanticSearchEngine:
             
         except Exception as e:
             raise CustomException(e, sys)
-        
+    
+    @lru_cache(maxsize=16) # Store the result for last 64 recommended articles
     def search(self, query:str, top_k:int=5, filter=False) -> pd.DataFrame:
         """
         Advance semantic search function with Topic Routing

@@ -57,18 +57,37 @@ Gliner_ner = "fastino/gliner2-large-v1" # OR "urchade/gliner_medium-v2.1"
 Keybert_model = "all-MiniLM-L6-v2"
 SUMMARIZATION_MODEL = "sshleifer/distilbart-cnn-12-6"
 
-
-
-# FAISS_INDEX_DIR = os.path.join(ARTIFACTS_DIR, "faiss")
-# EMBEDDING_MODEL_DIR = os.path.join(ARTIFACTS_DIR, "embeddings")
-# TOPIC_MODEL_DIR = os.path.join(ARTIFACTS_DIR, "topic_models")
-# LOG_DIR = os.path.join(ARTIFACTS_DIR, "logs")
-
 # =========================================================
 # NLP MODELS / SETTINGS
 # =========================================================
 SENTENCE_TRANSFORMER_MODEL = "BAAI/bge-small-en-v1.5" # "all-MiniLM-L6-v2"
 SPACY_MODEL = "en_core_web_sm"
+
+# Load custom parameters from params.yaml without removing defaults
+try: ## LOAD ALL MODEL CONFIG from yaml file
+    import yaml
+    PARAMS_FILE = os.path.join(PROJECT_ROOT, "params.yaml")
+    if os.path.exists(PARAMS_FILE):
+        with open(PARAMS_FILE, "r") as f:
+            _params = yaml.safe_load(f) or {}
+        
+        if "ner" in _params:
+            Spacy_trf = _params["ner"].get("spacy_model_name", Spacy_trf)
+            Gliner_ner = _params["ner"].get("gliner_model_name", Gliner_ner)
+            Keybert_model = _params["ner"].get("keybert_model_name", Keybert_model)
+        
+        if "summarization" in _params:
+            SUMMARIZATION_MODEL = _params["summarization"].get("model_name", SUMMARIZATION_MODEL)
+            
+        if "semantic_topic_model" in _params:
+            SENTENCE_TRANSFORMER_MODEL = _params["semantic_topic_model"].get("embedding_model_name", SENTENCE_TRANSFORMER_MODEL)
+            
+        if "feature_generation" in _params:
+            SPACY_MODEL = _params["feature_generation"].get("spacy_model", SPACY_MODEL)
+except ImportError:
+    print("Warning: PyYAML not installed. Using default parameters in config.py.")
+except Exception as e:
+    print(f"Error reading params.yaml: {e}")
 
 
 # =========================================================
