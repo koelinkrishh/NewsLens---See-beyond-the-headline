@@ -15,7 +15,7 @@ os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 # --- Configuration ---
-API_BASE_URL = "http://127.0.0.1:8000"
+API_BASE_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 
 st.set_page_config(page_title="News Intelligence Platform", layout="wide")
 
@@ -46,7 +46,7 @@ def check_api():
         return e
 
 # --- Main App Layout ---
-st.title("📰 News Intelligence Platform (API Mode)")
+st.title("📰 News Intelligence Platform")
 
 if not st.session_state["api_online"]:
     res = check_api()

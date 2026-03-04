@@ -41,6 +41,7 @@ class TextFeatureGenerator:
             
             # 1. Download NLTK resources
             nltk.download('punkt', quiet=True)
+            nltk.download('punkt_tab', quiet=True)
             nltk.download('stopwords', quiet=True)
             self.stop_words = set(stopwords.words('english'))
             

@@ -1,0 +1,17 @@
+.git
+.gitignore
+venv
+.NewsEnv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints
+Notebooks/
+.vscode
+.idea
+Dataset/
+Models/
+artifacts/
+logs/
+.dockerignore

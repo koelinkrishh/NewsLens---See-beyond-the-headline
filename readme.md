@@ -61,53 +61,65 @@ News categorization/
 ```
 
 ---
+## ▶️ Complete Setup & Execution Route
 
 ## ▶️ Setup & Installation
 
-Follow these steps to set up the environment and run the project from scratch.
-
-### 1. Clone the Repository
+### Step 1. Environment & Dependencies
+Open a terminal in the root project directory:
 ```bash
+# Clone the Repository
 git clone https://github.com/yourusername/NewsLens.git
 cd NewsLens
-```
 
-### 2. Set Up Virtual Environment (Recommended)
-```bash
-python -m venv newsenv
-# Windows:
-.\newsenv\Scripts\activate
-# Mac/Linux:
-source newsenv/bin/activate
-```
+# Create and activate environment
+python -m venv .NewsEnv
+.\.NewsEnv\Scripts\activate
 
-### 3. Install Dependencies
-```bash
+# Install all necessary AI libraries
 pip install -r requirements.txt
-python -m spacy download en_core_web_sm
 ```
 
-### 4. Run the Application
-You need to run **two separate processes**:
-
-**Step 4a: Start the Backend API (AI Engine)**
-Open a terminal and run:
+### Step 2. Download Transformer Models
+Run the downloader to pull models locally (prevents downloading large files inside the Docker container):
 ```bash
-uvicorn app.api:app --reload
+python download_models.py
 ```
-*Wait for the "Startup complete" message.*
 
-**Step 4b: Start the Frontend Dashboard**
-Open a second terminal (ensure the environment is active) and run:
+### Step 3. Train & Process Pipelines
+Run the component scripts sequentially to process data and generate local artifacts (`Dataset/` and `Models/`):
 ```bash
+python "src/Components/1) FeatureGeneration.py"
+python "src/Components/2) Embedding.py"
+python "src/Components/3) SemanticClustering.py"
+python "src/Components/4) SemanticTopicModel.py"
+python "src/Components/5) SearchFAISS.py"
+```
+
+### Step 4. Launch Backend AI Engine (via Minimal Docker Container)
+The backend runs in an optimized, slim Docker container. It handles all the heavy model inference while mounting your local `Models/` and `Dataset/` directories.
+```bash
+# Build and run the Backend API
+docker compose -f docker/docker-compose.yaml up --build -d
+```
+*Verify the API is online: [http://localhost:8000/](http://localhost:8000/)*
+
+### Step 5. Launch Frontend Dashboard (Local Engine)
+The frontend is run locally to provide a snappy experience. In your active `.NewsEnv` terminal:
+```bash
+# Install frontend-specific dependencies
+pip install -r app/requirements-app.txt
+
+# Launch Streamlit
 streamlit run app/app.py
 ```
+*Access the beautiful dashboard at [http://localhost:8501](http://localhost:8501)*
 
 ---
 
 ## 📈 Roadmap & Extensions
 
-- **[Planned] Dockerization:** Containerizing the API and UI using Docker Compose for one-click deployment.
+- **Dockerization:** Containerizing the API and UI using Docker Compose for one-click deployment. [Complete]
 - **[Planned] Cloud Deployment:** Hosting the API on AWS/GCP and the UI on Streamlit Cloud.
 - **Temporal Trend Analysis:** Visualizing how specific news topics evolve over time.
 - **Multilingual Support:** Expanding NER and Summarization to support non-English news sources.
@@ -119,3 +131,29 @@ streamlit run app/app.py
 _👤 **Author**_
 **Krishan Verma**
 *Aspiring Data Scientist / ML Engineer*
+
+
+"""
+Docker command to build and run docker image
+
+1. Build the docker image
+```
+docker compose -f docker/docker-compose.yaml build
+```
+
+2. Run the docker image
+```
+docker compose -f docker/docker-compose.yaml up -d
+```
+
+3. Stop the docker image
+```
+docker compose -f docker/docker-compose.yaml down
+```
+
+4. Verify the API is online
+```
+curl -X GET "http://localhost:8000/"
+```
+
+"""
