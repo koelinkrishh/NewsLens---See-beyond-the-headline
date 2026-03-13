@@ -117,6 +117,15 @@ streamlit run app/app.py
 
 ---
 
+## 🔐 API Security & Access
+The platform includes an AI Engine protection layer to prevent unauthorized access and resource abuse:
+- **Default API Key:** `newslens_secret_key_2026`
+- **Input Limits:** Max 20,000 characters per request (configured in `src/config.py`).
+- **Authentication:** All AI-powered endpoints require an `X-API-Key` header.
+- **Frontend Usage:** Upon launching the Streamlit app, enter the API key in the sidebar under **🔐 API Key:** to unlock the analysis modules.
+
+---
+
 ## 📈 Roadmap & Extensions
 
 - **Dockerization:** Containerizing the API and UI using Docker Compose for one-click deployment. [Complete]

@@ -9,6 +9,8 @@ import streamlit as st
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from src.config import API_KEY, MAX_TEXT_LENGTH
+
 # 1. Suppress the oneDNN optimization messages
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 # 2. Suppress other TensorFlow logging (0=all, 1=no INFO, 2=no INFO/WARN, 3=no ERROR)
@@ -47,6 +49,15 @@ def check_api():
 
 # --- Main App Layout ---
 st.title("📰 News Intelligence Platform")
+
+# Sidebar Security
+st.sidebar.title("🔐 API Key: ")
+user_api_key = st.sidebar.text_input("Enter API Key", value=API_KEY, type="password")
+
+headers = {
+    "X-API-Key": user_api_key,
+    "Content-Type": "application/json"
+}
 
 if not st.session_state["api_online"]:
     res = check_api()
@@ -88,7 +99,7 @@ if page == "Home":
         with st.spinner("Processing via API..."):
             try:
                 # 1. Process via API
-                response = requests.post(f"{API_BASE_URL}/process", json={"text": raw_text})
+                response = requests.post(f"{API_BASE_URL}/process", json={"text": raw_text}, headers=headers) # Need headers for api key
                 if response.status_code == 200:
                     data = response.json()
                     
@@ -161,7 +172,8 @@ elif page == "2. Summarization":
             with st.spinner("Summarizing..."):
                 try:
                     res = requests.post(f"{API_BASE_URL}/summarize", 
-                                        json={"text": st.session_state["article_text"], "compression": compression})
+                                        json={"text": st.session_state["article_text"], "compression": compression},
+                                        headers=headers)
                     if res.status_code == 200:
                         summary_text = res.json()["summary"]
                         st.subheader("Summary")
@@ -183,7 +195,7 @@ elif page == "3. Clustering & Topic Modeling":
     st.header("Clustering & Topic Modeling")
     try:
         with st.spinner("Fetching Clustering Data..."):
-            res = requests.post(f"{API_BASE_URL}/cluster", json={"text": st.session_state["article_text"]})
+            res = requests.post(f"{API_BASE_URL}/cluster", json={"text": st.session_state["article_text"]}, headers=headers)
             if res.status_code == 200:
                 data = res.json()
                 tab1, tab2 = st.tabs(["KMeans Clustering", "BERTopic Modeling"])
@@ -241,7 +253,7 @@ elif page == "4. Named Entity Recognition":
     st.header("NER Analysis")
     try:
         with st.spinner("Extracting Entities..."):
-            res = requests.post(f"{API_BASE_URL}/ner", json={"text": st.session_state["article_text"]})
+            res = requests.post(f"{API_BASE_URL}/ner", json={"text": st.session_state["article_text"]}, headers=headers)
             if res.status_code == 200:
                 data = res.json()
                 t1, t2, t3 = st.tabs(["spaCy", "GLiNER", "KeyBERT (Keywords)"])
@@ -272,7 +284,7 @@ if page != "Home":
     st.divider()
     st.subheader("🔍 Similar Articles (via FAISS)")
     try:
-        res = requests.post(f"{API_BASE_URL}/search", json={"text": st.session_state["article_text"]})
+        res = requests.post(f"{API_BASE_URL}/search", json={"text": st.session_state["article_text"]}, headers=headers)
         if res.status_code == 200:
             data = res.json()
             st.write(f"*Routed via Topic #{data['topic']}*")
@@ -288,7 +300,7 @@ if page != "Home":
                         if st.button("Analyze", key=f"api_sim_{item['idx']}"):
                             with st.spinner("Processing suggested article..."):
                                 try:
-                                    response = requests.post(f"{API_BASE_URL}/process", json={"text": item["Content"]})
+                                    response = requests.post(f"{API_BASE_URL}/process", json={"text": item["Content"]}, headers=headers)
                                     if response.status_code == 200:
                                         data = response.json()
                                         st.session_state["article_text"] = item["Content"]

@@ -7,6 +7,14 @@ import os
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 # =========================================================
+# SECURITY CONFIGURATION
+# =========================================================
+API_KEY = os.getenv("NEWSLENS_API_KEY", "newslens_secret_key_2026")
+MAX_TEXT_LENGTH = 20000  # Maximum characters per request to prevent DoS
+RATE_LIMIT_REQUESTS = 100 # Requests per minute
+RATE_LIMIT_WINDOW = 60    # seconds
+
+# =========================================================
 # SOURCE & COMPONENT PATHS
 # =========================================================
 SRC_DIR = os.path.join(PROJECT_ROOT, "src")

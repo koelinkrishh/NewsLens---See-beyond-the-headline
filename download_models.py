@@ -57,3 +57,15 @@ if __name__ == "__main__":
     download_spacy_models()
     download_huggingface_models()
     print("--- All core models downloaded successfully ---")
+    
+    
+"""
+Pip notes:
+1. Add all requirements
+pip freeze > requirements.txt
+
+2. Add only missing files
+# This gets your current environment and appends only what's NOT already in the file
+pip freeze | Select-String -NotMatch (Get-Content requirements.txt -Raw) >> requirements.txt
+
+"""
