@@ -17,7 +17,7 @@ from src.Components.Embedding import ArticleEmbeddingEngine
 from src.Components.SemanticClustering import KMeansTopicLabeler
 from src.Components.SemanticTopicModel import SemanticTopicModel
 from src.Components.Summarization import NewsSummarizer
-from src.Components.NER import InformationExtractor
+from src.Components.NER_lc import InformationExtractor
 from src.Components.SearchFAISS import SemanticSearchEngine
 from bertopic import BERTopic
 
@@ -152,12 +152,28 @@ def extract_ner(req: ArticleRequest, api_key: APIKey = Depends(get_api_key)):
     keywords = ner_res['keywords']
     spacy_ents = ner_res['predefined_ents']
     gliner_ents = ner_res['custom_ents']
+    entities = ner_res.get('entities', [])
     
-    # We can serialize simplified formats or just return HTMLs for visualization
-    spacy_html = models['ner'].Visualize(req.text, type="spacy")
-    gliner_html = models['ner'].Visualize(req.text, type="gliner", entities=gliner_ents)
+    # Unified HTML visualization
+    unified_html = models['ner'].Visualize(req.text, entities=entities)
+    
+    # Backwards compatible separate visualizations
+    spacy_ents_dict = []
+    for text_val, label_val in spacy_ents:
+        start_idx = req.text.find(text_val)
+        if start_idx != -1:
+            spacy_ents_dict.append({
+                'text': text_val,
+                'label': label_val,
+                'start': start_idx,
+                'end': start_idx + len(text_val)
+            })
+    spacy_html = models['ner'].Visualize(req.text, entities=spacy_ents_dict)
+    gliner_html = models['ner'].Visualize(req.text, entities=gliner_ents)
     
     return {
+        "html": unified_html,
+        "entities": entities,
         "spacy_html": spacy_html,
         "gliner_html": gliner_html,
         "spacy_ents": spacy_ents,

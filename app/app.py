@@ -256,23 +256,43 @@ elif page == "4. Named Entity Recognition":
             res = requests.post(f"{API_BASE_URL}/ner", json={"text": st.session_state["article_text"]}, headers=headers)
             if res.status_code == 200:
                 data = res.json()
-                t1, t2, t3 = st.tabs(["spaCy", "GLiNER", "KeyBERT (Keywords)"])
                 
-                with t1:
-                    st.components.v1.html(f"<div style='background-color: white; color: black; padding: 10px; border-radius: 5px;'>{data['spacy_html']}</div>", height=400, scrolling=True)
-                    nviz = NERVisualizer(extraction_result=data["raw_ner_res"])
-                    st.plotly_chart(nviz.plot_entity_distribution_spacy(), width='stretch')
+                # Side-by-side premium layout
+                col_left, col_right = st.columns([0.65, 0.35])
                 
-                with t2:
-                    st.components.v1.html(f"<div style='background-color: white; color: black; padding: 10px; border-radius: 5px;'>{data['gliner_html']}</div>", height=400, scrolling=True)
-                    nviz2 = NERVisualizer(extraction_result=data["raw_ner_res"])
-                    st.plotly_chart(nviz2.plot_entity_distribution_gliner(), width='stretch')
-                
-                with t3:
+                with col_left:
+                    st.subheader("Highlighted Entities")
+                    # Main complete text with highlighted entities
+                    html_content = data.get("html", data.get("gliner_html", ""))
+                    st.components.v1.html(
+                        f"<div style='background-color: white; color: black; padding: 15px; border-radius: 8px; border: 1px solid #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; line-height: 1.8;'>{html_content}</div>",
+                        height=450,
+                        scrolling=True
+                    )
+                    
+                    st.subheader("Extracted Entities List")
+                    # Table of {Entity, Type, Score}
+                    entities_list = data.get("entities", [])
+                    if not entities_list:
+                        entities_list = data.get("gliner_ents", [])
+                        
+                    if entities_list:
+                        df_ent = pd.DataFrame(entities_list)
+                        if "text" in df_ent.columns:
+                            df_ent = df_ent.rename(columns={"text": "Entity", "label": "Type", "score": "Score"})
+                        df_ent = df_ent[["Entity", "Type", "Score"]].sort_values(by="Score", ascending=False)
+                        st.dataframe(df_ent.style.background_gradient(cmap="Greens", subset=['Score']), use_container_width=True)
+                    else:
+                        st.info("No entities extracted.")
+                        
+                with col_right:
+                    st.subheader("Keywords (KeyBERT)")
                     df_kw = pd.DataFrame(data["keywords"], columns=["Keyword", "Score"])
-                    st.dataframe(df_kw.style.background_gradient(cmap="Blues", subset=['Score']))
-                    nviz3 = NERVisualizer(extraction_result=data["raw_ner_res"])
-                    st.plotly_chart(nviz3.plot_keywords(), width='stretch')
+                    st.dataframe(
+                        df_kw.style.background_gradient(cmap="Blues", subset=['Score']),
+                        use_container_width=True,
+                        height=600
+                    )
             else:
                 st.error(res.text)
     except Exception as e:

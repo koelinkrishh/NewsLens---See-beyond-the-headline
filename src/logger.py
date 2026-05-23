@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 
 log_file = f"{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}.log"
+os.makedirs("logs", exist_ok=True)
 log_file_path = os.path.join("logs", log_file) # file path
 
 # Setting up logger

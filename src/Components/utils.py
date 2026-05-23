@@ -18,7 +18,17 @@ model_name = "sshleifer/distilbart-cnn-12-6"
 max_tokens = 500
 
 ## Spacy pipeline
-nlp = spacy.load(SPACY_MODEL)
+try:
+    nlp = spacy.load(SPACY_MODEL)
+except OSError:
+    logging.warning(f"SpaCy model {SPACY_MODEL} not found. Attempting to download dynamically...")
+    try:
+        from spacy.cli import download
+        download(SPACY_MODEL)
+        nlp = spacy.load(SPACY_MODEL)
+    except Exception as e:
+        logging.error(f"Failed to download SpaCy model {SPACY_MODEL}: {e}")
+        nlp = None
 
 models = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL)
 tokenizer = models.tokenizer # AutoTokenizer.from_pretrained("sshleifer/distilbart-cnn-12-6")
@@ -65,10 +75,10 @@ def clean_text(s:str)->str:
 
 def split_sentence(text:str) -> List[str]:
     """
-    Basic sentence splitting using regex
-    You can replace with spaCy or nltk if needed
+    Basic sentence splitting using SpaCy with a safe regex-based fallback if SpaCy is unavailable.
     """
-    # sentences = re.split(r'(?<=[,!?])\s+', text)
+    if nlp is None:
+        return [s.strip() for s in re.split(r'(?<=[.!?])\s+', text.strip()) if s.strip()]
     doc = nlp(text)
     sentences = [str(sent).strip() for sent in doc.sents if str(sent).strip()]
     return sentences

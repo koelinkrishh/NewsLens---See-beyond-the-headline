@@ -1,33 +1,39 @@
-# Docker Compose for NewLens - Backend AI Engine
-# Only runs the FastAPI service to maximize efficiency.
-# Frontend is expected to be run locally by the user.
-
 services:
-  news-api:
+  api:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
-    container_name: newlens_backend_api
+      dockerfile: docker/Dockerfile.api
+    container_name: newlens_api
     ports:
-      - "8000:8000"
-    volumes:
-      # Mount project root for backend logic
-      - ..:/app
-      # Cache HuggingFace models strictly in your D: drive folder
-      - ../Models/huggingface_cache:/app/Models/huggingface_cache
-    environment:
-      - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/app
-      - HF_HOME=/app/Models/huggingface_cache
-    command: uvicorn app.api:app --host 0.0.0.0 --port 8000
-    restart: unless-stopped
-    # Add a healthcheck to ensure API is ready
+      - "8099:8099"
+    env_file:
+      - ../.env
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/').getcode()" ]
-      interval: 30s
+      test: ["CMD-SHELL", "python -c \"import urllib.request, sys;\n\ntry:\n    urllib.request.urlopen('http://localhost:8099/', timeout=10)\nexcept Exception as e:\n    sys.exit(1)\n\""]
+      interval: 15s
       timeout: 10s
-      retries: 3
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+    volumes:
+      - ../Dataset:/app/Dataset:ro
+  
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    container_name: newlens_app
+    ports:
+      - "8501:8501"
+    environment:
+      - API_URL=http://api:8099
+    env_file:
+      - ../.env
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
 networks:
   default:
-    name: newlens_network
+    name: newlens

@@ -26,12 +26,11 @@ class ArticleEmbeddingEngine:
     High-performance embedding engine.
     Optimized for speed using batch processing and vectorization.
     """
-    def __init__(self, 
-                 model_name:str = SENTENCE_TRANSFORMER_MODEL, 
-                 spacy_model:str = SPACY_MODEL,
-                 max_tokens:int = 512, 
-                 batch_size:int = 32, 
-                 overlap_sentences:int = 1):
+    def __init__(self, model_name:str = SENTENCE_TRANSFORMER_MODEL, 
+            spacy_model:str = SPACY_MODEL,
+            max_tokens:int = 512, 
+            batch_size:int = 32, 
+            overlap_sentences:int = 1):
         
         logging.info(f"Initializing Embedding Engine [{model_name}]...")
         try:
@@ -65,12 +64,12 @@ class ArticleEmbeddingEngine:
         """
         if not sentences:
             return [], []
-
+        
         # SPEED OPTIMIZATION: Batch tokenize to get lengths in one go
         # This replaces the slow loop: [len(tokenizer(s)) for s in sentences]
         tokenized_inputs = self.tokenizer(sentences, add_special_tokens=False, padding=False, truncation=False)
         sent_lengths = [len(ids) for ids in tokenized_inputs['input_ids']]
-
+        
         chunks = []
         chunk_weights = [] # store token count for weighted pooling later
         
@@ -110,7 +109,8 @@ class ArticleEmbeddingEngine:
             chunk_weights.append(curr_length)
             
         return chunks, chunk_weights
-
+    
+    
     def Embed_dataframe(self, df: pd.DataFrame, text_col: str):
         """
         Main Pipeline:
@@ -249,10 +249,10 @@ if __name__ == "__main__":
         INPUT_FILE = CLEANED_DATASET_PARQUET # from config.py
         OUTPUT_FILE = EMBEDDED_DATASET       # from config.py
         TEXT_COL = "Content"
-
+        
         if not os.path.exists(INPUT_FILE):
             raise FileNotFoundError(f"Input file not found: {INPUT_FILE}")
-
+        
         logging.info(f"Loading data from {INPUT_FILE}")
         df = pd.read_parquet(INPUT_FILE)
         
@@ -268,112 +268,8 @@ if __name__ == "__main__":
         # df.to_parquet(OUTPUT_FILE, index=False)
         
         logging.info(f"✅ Success! Saved to {OUTPUT_FILE}")
-
+        
     except Exception as e:
         logging.error(f"Pipeline Failed: {e}")
         raise CustomException(e, sys)
 
-
-""" # Alternative chunking logic
-    # Get chunking function from utils
-        # self.Chunker = chunk
-        
-    def Chunker(self, text:str, max_tokens:int=512) -> List[str]:
-        '''
-        Splits text into chunks that stay within the tokenizer's token limit.
-        Uses sentence boundaries to ensure chunks are linguistically sound.
-        '''
-        req = ChunkRequest(text=text)
-        text = clean_text(req.text)
-        sentences = split_sentence(text)
-
-        chunks = []
-        curr_chunk = []
-        current_len = 0
-
-        for sent in sentences:
-            sent_len = len(tokenizer(str(sent), add_special_tokens=False)["input_ids"])
-
-            # If sentence itself exceeds max_token, give it its own chunk
-            if sent_len > max_tokens:
-                if curr_chunk:
-                    chunks.append(" ".join(curr_chunk))
-                    curr_chunk, current_len = [], 0
-
-                chunks.append(sent)
-                continue
-            
-            # If adding sentence exceeds limit -> flush chunk
-            if current_len+sent_len > max_tokens:
-                chunks.append(" ".join(curr_chunk))
-
-                # ----------- overlap logic -----------
-                overlap = curr_chunk[-self.overlap_sentences:] if self.overlap_sentences > 0 else []
-                curr_chunk = overlap + [sent]
-                
-                # reset new sent into next chunk
-                current_len = sum(
-                    len(self.tokenizer(s, add_special_tokens=False)["input_ids"])
-                    for s in curr_chunk
-                )
-            else: # adding sent keep chunk within bound -> add furthur
-                curr_chunk.append(sent)
-                current_len += sent_len
-
-        if curr_chunk: # add last chunk
-            chunks.append(" ".join(curr_chunk))
-
-        return chunks
-    
-    def Embed_dataframe(self, df:pd.DataFrame, text_col:str):
-        texts = df[text_col].astype(str).tolist()
-        all_chunks = []
-        doc_chunk_map = []   # maps chunk -> document index
-        chunk_lengths = []
-        
-        # Step-1: chunk everything first
-        for idx, text in enumerate(tqdm(texts, desc="Chunking")):
-            chunks = self.Chunker(text)
-
-            if not chunks:
-                doc_chunk_map.append([])
-                continue
-
-            start_idx = len(all_chunks)
-
-            all_chunks.extend(chunks)
-
-            lengths = np.array([len(c.split()) for c in chunks], dtype=np.float32)
-            chunk_lengths.extend(lengths)
-
-            doc_chunk_map.append(
-                list(range(start_idx, start_idx + len(chunks)))
-            )
-        
-        # STEP 2: embed ALL chunks in batches
-        logging.info(f"Encoding {len(all_chunks)} chunks in batches...")
-
-        all_embeddings = self.model.encode(
-            all_chunks,
-            batch_size=self.batch_size,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-            show_progress_bar=True,
-        )
-        
-        # STEP 3: weighted pooling
-        final_embeddings = np.zeros((len(texts), self.embedding_dim), dtype=np.float32)
-        
-        for doc_idx, chunk_indices in enumerate(doc_chunk_map):
-            if not chunk_indices:
-                continue
-
-            emb = all_embeddings[chunk_indices]
-            lengths = np.array([chunk_lengths[i] for i in chunk_indices])
-
-            pooled = self._weighted_pooling(emb, lengths)
-            final_embeddings[doc_idx] = pooled.astype(np.float32)
-        
-        return np.array(all_embeddings)
-
-"""

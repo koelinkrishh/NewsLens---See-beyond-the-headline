@@ -1,4 +1,15 @@
-*.joblib filter=lfs diff=lfs merge=lfs -text
-Models/*.joblib filter=lfs diff=lfs merge=lfs -text
-*.parquet filter=lfs diff=lfs merge=lfs -text
-*.ipynb filter=nbstripout
+# Enforce LF line endings for text files
+* text=auto eol=lf
+
+# Explicitly set shell scripts and Docker files to LF
+*.sh text eol=lf
+Dockerfile* text eol=lf
+docker-compose.yml text eol=lf
+
+# Ignore line ending conversions for binary files
+*.parquet binary
+*.db binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary

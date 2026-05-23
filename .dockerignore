@@ -14,4 +14,21 @@ Dataset/
 Models/
 artifacts/
 logs/
+.env
 .dockerignore
+
+<!-- Legacy files not needed in runtime image -->
+codebase.md
+download_models.py
+params.yaml
+
+<!--  Old LC-legacy component files not used by new workflow -->
+src/Components/Embedding.py
+src/Components/FeatureGeneration.py
+src/Components/NER.py
+src/Components/SearchFAISS.py
+src/Components/SemanticClustering.py
+src/Components/SemanticTopicModel.py
+src/Components/Summarization.py
+src/Components/Visualization.py
+src/Components/Tests/

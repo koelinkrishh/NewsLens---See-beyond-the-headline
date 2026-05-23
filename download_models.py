@@ -24,7 +24,7 @@ except ImportError:
     # Safe fallback if config missing for some reason
     Spacy_trf = "en_core_web_trf"
     Gliner_ner = "fastino/gliner2-large-v1"
-    Keybert_model = "all-MiniLM-L6-v2"
+    Keybert_model = "BAAI/bge-small-en-v1.5"
     SUMMARIZATION_MODEL = "sshleifer/distilbart-cnn-12-6"
     SENTENCE_TRANSFORMER_MODEL = "BAAI/bge-small-en-v1.5"
     SPACY_MODEL = "en_core_web_sm"
